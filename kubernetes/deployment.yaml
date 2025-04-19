@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tsdnsreflector
+  labels:
+    app: tsdnsreflector
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tsdnsreflector
+  template:
+    metadata:
+      labels:
+        app: tsdnsreflector
+    spec:
+      containers:
+      - name: tsdnsreflector
+        image: yourusername/tsdnsreflector:latest
+        ports:
+        - containerPort: 53
+          protocol: UDP
+          name: dns-udp
+        - containerPort: 53
+          protocol: TCP
+          name: dns-tcp
+        env:
+        - name: SITE_ID
+          valueFrom:
+            configMapKeyRef:
+              name: tsdnsreflector-config
+              key: site_id
+              optional: false
+        - name: IPV6_DOMAIN
+          valueFrom:
+            configMapKeyRef:
+              name: tsdnsreflector-config
+              key: ipv6_domain
+              optional: false
+        - name: IPV4_DOMAIN
+          valueFrom:
+            configMapKeyRef:
+              name: tsdnsreflector-config
+              key: ipv4_domain
+              optional: false
+        resources:
+          limits:
+            cpu: "0.5"
+            memory: "128Mi"
+          requests:
+            cpu: "0.1"
+            memory: "64Mi"
+        livenessProbe:
+          tcpSocket:
+            port: dns-tcp
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: dns-tcp
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tsdnsreflector-config
+data:
+  site_id: "7"
+  ipv6_domain: "cluster1.local"
+  ipv4_domain: "cluster.local" 
