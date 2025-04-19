@@ -16,7 +16,8 @@ spec:
     spec:
       containers:
       - name: tsdnsreflector
-        image: yourusername/tsdnsreflector:latest
+        image: quay.io/rajsinghcpre/tsdnsreflector:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 53
           protocol: UDP
@@ -49,6 +50,12 @@ spec:
               name: tsdnsreflector-config
               key: dns_resolver
               optional: true
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: tsdnsreflector-config
+              key: port
+              optional: true
         resources:
           limits:
             cpu: "0.5"
@@ -66,16 +73,3 @@ spec:
             port: dns-tcp
           initialDelaySeconds: 5
           periodSeconds: 10
-      securityContext:
-        runAsNonRoot: true
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: tsdnsreflector-config
-data:
-  site_id: "7"
-  ipv6_domain: "cluster1.local"
-  ipv4_domain: "cluster.local"
-  # Optional: custom DNS resolver in the format "host:port"
-  # dns_resolver: "8.8.8.8:53" 

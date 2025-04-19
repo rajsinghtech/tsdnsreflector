@@ -4,7 +4,7 @@ A DNS server that reflects IPv4 addresses to Tailscale 4via6 IPv6 addresses.
 
 ## Overview
 
-tsdnsreflector serves as a DNS server on port 53 that converts IPv4 addresses to Tailscale's 4via6 IPv6 format. When a client requests a hostname in the configured IPv6 domain, the server:
+tsdnsreflector serves as a DNS server that converts IPv4 addresses to Tailscale's 4via6 IPv6 format. When a client requests a hostname in the configured IPv6 domain, the server:
 
 1. Converts the domain name to the corresponding IPv4 domain
 2. Looks up the A record for that domain
@@ -21,9 +21,10 @@ The application requires the following environment variables:
 - `IPV6_DOMAIN`: The domain suffix for which IPv6 addresses will be returned
 - `IPV4_DOMAIN`: The domain suffix used for A record lookups
 
-The following environment variable is optional:
+The following environment variables are optional:
 
 - `DNS_RESOLVER`: Custom DNS resolver to use for lookups in the format "host:port" (e.g., "8.8.8.8:53"). If not specified, the system resolver will be used.
+- `PORT`: Custom port to run the DNS server on (e.g., "5353"). If not specified, the standard DNS port 53 will be used.
 
 All required environment variables must be provided or the application will fail to start.
 
@@ -35,6 +36,7 @@ SITE_ID = 7
 IPV6_DOMAIN = cluster1.local
 IPV4_DOMAIN = cluster.local
 DNS_RESOLVER = 8.8.8.8:53  # Optional, uses Google DNS
+PORT = 5353               # Optional, uses port 5353 instead of 53
 ```
 
 When a client requests `test.default.svc.cluster1.local`, the server will:
@@ -48,13 +50,16 @@ When a client requests `test.default.svc.cluster1.local`, the server will:
 ```bash
 docker build -t yourusername/tsdnsreflector:latest .
 
-docker run -p 53:53/udp -p 53:53/tcp \
+docker run -p 5353:5353/udp -p 5353:5353/tcp \
   -e SITE_ID=7 \
   -e IPV6_DOMAIN=cluster1.local \
   -e IPV4_DOMAIN=cluster.local \
   -e DNS_RESOLVER=8.8.8.8:53 \  # Optional
+  -e PORT=5353 \                # Optional
   yourusername/tsdnsreflector:latest
 ```
+
+Note: If you specify a custom PORT, make sure to also update the port mapping in your docker run command.
 
 All required environment variables must be provided or the container will fail to start.
 
@@ -73,6 +78,8 @@ kubectl apply -f kubernetes/service.yaml
 kubectl get pods -l app=tsdnsreflector
 kubectl get svc tsdnsreflector
 ```
+
+Note: If you run the server on a non-standard port in Kubernetes, you'll need to update both the deployment.yaml (container ports) and service.yaml (targetPort) to match.
 
 ## References
 

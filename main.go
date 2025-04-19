@@ -17,6 +17,7 @@ var (
 	ipv6Domain  string
 	ipv4Domain  string
 	dnsResolver *net.Resolver
+	serverPort  string
 )
 
 func init() {
@@ -51,6 +52,21 @@ func init() {
 	}
 	if !strings.HasSuffix(ipv4Domain, ".") {
 		ipv4Domain = ipv4Domain + "."
+	}
+	
+	// Check for custom server port
+	if port, exists := os.LookupEnv("PORT"); exists && port != "" {
+		// Validate the port is a number
+		portNum, err := strconv.Atoi(port)
+		if err != nil || portNum < 1 || portNum > 65535 {
+			log.Fatalf("Invalid PORT value: %s - must be between 1 and 65535", port)
+		}
+		serverPort = port
+		log.Printf("Using custom server port: %s", serverPort)
+	} else {
+		// Default to port 53 if not specified
+		serverPort = "53"
+		log.Printf("Using default DNS port: %s", serverPort)
 	}
 
 	// Set up the DNS resolver
@@ -236,7 +252,7 @@ func main() {
 
 	// Start the DNS server
 	go func() {
-		server := &dns.Server{Addr: ":53", Net: "udp"}
+		server := &dns.Server{Addr: ":" + serverPort, Net: "udp"}
 		log.Printf("Starting DNS server on %s/udp", server.Addr)
 		if err := server.ListenAndServe(); err != nil {
 			log.Fatalf("Failed to start UDP server: %v", err)
@@ -244,7 +260,7 @@ func main() {
 	}()
 
 	go func() {
-		server := &dns.Server{Addr: ":53", Net: "tcp"}
+		server := &dns.Server{Addr: ":" + serverPort, Net: "tcp"}
 		log.Printf("Starting DNS server on %s/tcp", server.Addr)
 		if err := server.ListenAndServe(); err != nil {
 			log.Fatalf("Failed to start TCP server: %v", err)
