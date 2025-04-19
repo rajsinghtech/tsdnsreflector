@@ -21,7 +21,11 @@ The application requires the following environment variables:
 - `IPV6_DOMAIN`: The domain suffix for which IPv6 addresses will be returned
 - `IPV4_DOMAIN`: The domain suffix used for A record lookups
 
-All environment variables are required. The application will fail to start if any of them are not provided.
+The following environment variable is optional:
+
+- `DNS_RESOLVER`: Custom DNS resolver to use for lookups in the format "host:port" (e.g., "8.8.8.8:53"). If not specified, the system resolver will be used.
+
+All required environment variables must be provided or the application will fail to start.
 
 ## Example
 
@@ -30,11 +34,12 @@ Given the following configuration:
 SITE_ID = 7
 IPV6_DOMAIN = cluster1.local
 IPV4_DOMAIN = cluster.local
+DNS_RESOLVER = 8.8.8.8:53  # Optional, uses Google DNS
 ```
 
 When a client requests `test.default.svc.cluster1.local`, the server will:
 1. Convert to `test.default.svc.cluster.local`
-2. Look up the A record, which resolves to `10.1.1.0`
+2. Look up the A record, which resolves to `10.1.1.0` (using the specified DNS resolver if provided)
 3. Convert `10.1.1.0` to `fd7a:115c:a1e0:b1a:0:7:a01:100` using SITE_ID=7
 4. Return the AAAA record with the IPv6 address
 
@@ -47,10 +52,11 @@ docker run -p 53:53/udp -p 53:53/tcp \
   -e SITE_ID=7 \
   -e IPV6_DOMAIN=cluster1.local \
   -e IPV4_DOMAIN=cluster.local \
+  -e DNS_RESOLVER=8.8.8.8:53 \  # Optional
   yourusername/tsdnsreflector:latest
 ```
 
-All environment variables are required. The container will fail to start if any of them are not provided.
+All required environment variables must be provided or the container will fail to start.
 
 ## Kubernetes Deployment
 

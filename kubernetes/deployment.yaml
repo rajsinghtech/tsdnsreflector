@@ -43,6 +43,12 @@ spec:
               name: tsdnsreflector-config
               key: ipv4_domain
               optional: false
+        - name: DNS_RESOLVER
+          valueFrom:
+            configMapKeyRef:
+              name: tsdnsreflector-config
+              key: dns_resolver
+              optional: true
         resources:
           limits:
             cpu: "0.5"
@@ -70,4 +76,6 @@ metadata:
 data:
   site_id: "7"
   ipv6_domain: "cluster1.local"
-  ipv4_domain: "cluster.local" 
+  ipv4_domain: "cluster.local"
+  # Optional: custom DNS resolver in the format "host:port"
+  # dns_resolver: "8.8.8.8:53" 

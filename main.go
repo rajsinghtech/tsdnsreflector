@@ -53,8 +53,24 @@ func init() {
 		ipv4Domain = ipv4Domain + "."
 	}
 
-	// Use the system resolver for DNS lookups
-	dnsResolver = net.DefaultResolver
+	// Set up the DNS resolver
+	if customResolver, exists := os.LookupEnv("DNS_RESOLVER"); exists && customResolver != "" {
+		// If a custom resolver was specified, use it
+		// Format should be host:port (e.g., 8.8.8.8:53)
+		log.Printf("Using custom DNS resolver: %s", customResolver)
+		
+		dnsResolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{}
+				return d.DialContext(ctx, "udp", customResolver)
+			},
+		}
+	} else {
+		// Otherwise use the system resolver
+		log.Printf("Using system DNS resolver")
+		dnsResolver = net.DefaultResolver
+	}
 }
 
 // IPv4ToTailscale4via6 converts an IPv4 address to a Tailscale 4via6 IPv6 address
