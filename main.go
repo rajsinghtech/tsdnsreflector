@@ -132,10 +132,10 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	ctx := context.Background()
 
 	for _, q := range r.Question {
-		log.Printf("Received query for %s", q.Name)
+		log.Printf("Received query for %s (type: %d)", q.Name, q.Qtype)
 
-		// Only process AAAA queries for our IPv6 domain
-		if q.Qtype == dns.TypeAAAA && strings.HasSuffix(q.Name, ipv6Domain) {
+		// Check if the query is for our IPv6 domain
+		if strings.HasSuffix(q.Name, ipv6Domain) {
 			// Convert from IPv6 domain to IPv4 domain
 			ipv4Name := strings.TrimSuffix(q.Name, ipv6Domain) + ipv4Domain
 			log.Printf("Looking up A record for %s", ipv4Name)
@@ -147,6 +147,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 				continue
 			}
 
+			// Process any IPv4 addresses we found
 			for _, ip := range ips {
 				if ip.To4() != nil {
 					// Convert IPv4 to Tailscale 4via6 format
@@ -157,42 +158,33 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 					}
 
 					log.Printf("Converted %s to %s", ip, ipv6)
-					aaaa := &dns.AAAA{
-						Hdr: dns.RR_Header{
-							Name:   q.Name,
-							Rrtype: dns.TypeAAAA,
-							Class:  dns.ClassINET,
-							Ttl:    300,
-						},
-						AAAA: ipv6,
+					
+					// For AAAA queries, return the IPv6 address
+					if q.Qtype == dns.TypeAAAA {
+						aaaa := &dns.AAAA{
+							Hdr: dns.RR_Header{
+								Name:   q.Name,
+								Rrtype: dns.TypeAAAA,
+								Class:  dns.ClassINET,
+								Ttl:    300,
+							},
+							AAAA: ipv6,
+						}
+						m.Answer = append(m.Answer, aaaa)
+					} else if q.Qtype == dns.TypeA {
+						// For A queries to the IPv6 domain, ALSO return the IPv6 address but as AAAA record
+						log.Printf("Received A query for IPv6 domain, returning AAAA record instead")
+						aaaa := &dns.AAAA{
+							Hdr: dns.RR_Header{
+								Name:   q.Name,
+								Rrtype: dns.TypeAAAA,
+								Class:  dns.ClassINET,
+								Ttl:    300,
+							},
+							AAAA: ipv6,
+						}
+						m.Answer = append(m.Answer, aaaa)
 					}
-					m.Answer = append(m.Answer, aaaa)
-				}
-			}
-		} else if q.Qtype == dns.TypeA && strings.HasSuffix(q.Name, ipv6Domain) {
-			// Handle A requests for the IPv6 domain by forwarding them to the IPv4 domain
-			ipv4Name := strings.TrimSuffix(q.Name, ipv6Domain) + ipv4Domain
-			log.Printf("Looking up A record for %s", ipv4Name)
-
-			// Look up the A record
-			ips, err := dnsResolver.LookupIP(ctx, "ip4", strings.TrimSuffix(ipv4Name, "."))
-			if err != nil {
-				log.Printf("Error looking up A record: %v", err)
-				continue
-			}
-
-			for _, ip := range ips {
-				if ip.To4() != nil {
-					a := &dns.A{
-						Hdr: dns.RR_Header{
-							Name:   q.Name,
-							Rrtype: dns.TypeA,
-							Class:  dns.ClassINET,
-							Ttl:    300,
-						},
-						A: ip.To4(),
-					}
-					m.Answer = append(m.Answer, a)
 				}
 			}
 		} else {

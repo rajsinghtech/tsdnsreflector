@@ -13,6 +13,15 @@ tsdnsreflector serves as a DNS server that converts IPv4 addresses to Tailscale'
 
 This is particularly useful for networks with overlapping IPv4 subnets when using Tailscale's 4via6 subnet router feature.
 
+### DNS Query Behavior
+
+When a client queries a hostname in the IPv6 domain:
+
+- **For AAAA queries**: Returns the IPv6 address in Tailscale 4via6 format.
+- **For A queries**: Also returns the IPv6 address as an AAAA record, forcing clients to use IPv6.
+
+This ensures that all traffic to the IPv6 domain goes through the Tailscale 4via6 routes, even when applications request A records.
+
 ## Configuration
 
 The application requires the following environment variables:
