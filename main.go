@@ -55,6 +55,9 @@ func init() {
 		originalDomain = originalDomain + "."
 	}
 	
+	log.Printf("Domains configured: reflected_domain=%q, original_domain=%q", 
+		reflectedDomain, originalDomain)
+	
 	// Check for FORCE_4VIA6 flag
 	force4via6Str, exists := os.LookupEnv("FORCE_4VIA6")
 	if exists {
@@ -153,10 +156,27 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 	for _, q := range r.Question {
 		log.Printf("Received query for %s (type: %d)", q.Name, q.Qtype)
+		
+		// Debug suffix check - ensure proper comparison with trailing dots
+		questionName := q.Name
+		if !strings.HasSuffix(questionName, ".") {
+			questionName = questionName + "."
+		}
+		
+		isSuffix := strings.HasSuffix(questionName, reflectedDomain)
+		log.Printf("Checking if %q has suffix %q: %v", questionName, reflectedDomain, isSuffix)
 
 		// Check if the query is for our reflected domain
-		if strings.HasSuffix(q.Name, reflectedDomain) {
-			originalName := strings.TrimSuffix(q.Name, reflectedDomain) + originalDomain
+		if isSuffix {
+			// Extract the hostname part (removing the reflected domain suffix)
+			hostnamePart := strings.TrimSuffix(questionName, reflectedDomain)
+			
+			// Reconstruct with original domain
+			originalName := hostnamePart + originalDomain
+			
+			log.Printf("Converting hostname: %s -> %s", questionName, originalName)
+			log.Printf("Components: hostnamePart=%q, reflectedDomain=%q, originalDomain=%q", 
+				hostnamePart, reflectedDomain, originalDomain)
 			
 			// Handle AAAA queries
 			if q.Qtype == dns.TypeAAAA {
@@ -188,9 +208,9 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 				
 				// If we found native AAAA records, we're done with this question
 				if hasNativeAAAA {
-					log.Printf("Returning native IPv6 addresses for %s", q.Name)
-					continue
-				}
+						log.Printf("Returning native IPv6 addresses for %s", q.Name)
+						continue
+					}
 				
 				// Otherwise, fall back to A record lookup and conversion
 				log.Printf("No native AAAA records found, falling back to A record lookup and conversion")
@@ -199,7 +219,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 					log.Printf("Error looking up A record: %v", err)
 					continue
 				}
-				
+
 				// Convert A records to AAAA and add to response
 				addConvertedARecords(m, q.Name, ips)
 			} else if q.Qtype == dns.TypeA {
@@ -208,11 +228,11 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 					// With force4via6 enabled, return AAAA records for A queries
 					log.Printf("A query with force4via6=true: looking up A records for %s and converting to AAAA", originalName)
 					ips, err := dnsResolver.LookupIP(ctx, "ip4", strings.TrimSuffix(originalName, "."))
-					if err != nil {
-						log.Printf("Error looking up A record: %v", err)
-						continue
-					}
-					
+			if err != nil {
+				log.Printf("Error looking up A record: %v", err)
+				continue
+			}
+
 					// Convert A records to AAAA and add to response
 					addConvertedARecords(m, q.Name, ips)
 				} else {
@@ -223,7 +243,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 						log.Printf("Error looking up A record: %v", err)
 						continue
 					}
-					
+
 					// Add A records to response
 					addARecords(m, q.Name, ips)
 				}
@@ -267,6 +287,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 func addARecords(m *dns.Msg, name string, ips []net.IP) {
 	for _, ip := range ips {
 		if ip.To4() != nil {
+			log.Printf("Adding A record: %s for %s", ip, name)
 			a := &dns.A{
 				Hdr: dns.RR_Header{
 					Name:   name,
@@ -277,7 +298,6 @@ func addARecords(m *dns.Msg, name string, ips []net.IP) {
 				A: ip.To4(),
 			}
 			m.Answer = append(m.Answer, a)
-			log.Printf("Added A record: %s", ip)
 		}
 	}
 }
@@ -292,7 +312,7 @@ func addConvertedARecords(m *dns.Msg, name string, ips []net.IP) {
 				continue
 			}
 
-			log.Printf("Converted %s to %s", ip, ipv6)
+			log.Printf("Converting %s to %s for %s", ip, ipv6, name)
 			
 			aaaa := &dns.AAAA{
 				Hdr: dns.RR_Header{
@@ -309,8 +329,8 @@ func addConvertedARecords(m *dns.Msg, name string, ips []net.IP) {
 }
 
 func main() {
-	log.Printf("Starting tsdnsreflector with SITE_ID=%d, REFLECTED_DOMAIN=%s, ORIGINAL_DOMAIN=%s", 
-		siteID, reflectedDomain, originalDomain)
+	log.Printf("Starting tsdnsreflector with SITE_ID=%d, REFLECTED_DOMAIN=%s, ORIGINAL_DOMAIN=%s, PORT=%s, FORCE_4VIA6=%v", 
+		siteID, reflectedDomain, originalDomain, serverPort, force4via6)
 
 	// Create a new DNS server
 	dns.HandleFunc(".", handleDNSRequest)
@@ -331,6 +351,8 @@ func main() {
 			log.Fatalf("Failed to start TCP server: %v", err)
 		}
 	}()
+
+	log.Printf("Server ready and listening on port %s", serverPort)
 
 	// Keep the server running
 	select {}
