@@ -9,4 +9,4 @@ data:
   ORIGINAL_DOMAIN: "cluster.local"
   DNS_RESOLVER: "none"
   FORCE_4VIA6: "true"
-  LISTEN_ADDR: ":53"
+  LISTEN_ADDR: ":5353"
