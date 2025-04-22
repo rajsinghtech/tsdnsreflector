@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"log"
 	"net"
@@ -18,6 +19,54 @@ type Config struct {
 	DNSResolver     string
 	Force4via6      bool
 	ListenAddr      string
+	// Cache the system resolvers
+	systemResolvers []string
+}
+
+// loadResolversFromResolvConf loads DNS resolvers from /etc/resolv.conf
+func loadResolversFromResolvConf() []string {
+	// Check for custom resolv.conf path in environment
+	resolvConfPath := "/etc/resolv.conf"
+	if customPath := os.Getenv("RESOLV_CONF"); customPath != "" {
+		resolvConfPath = customPath
+		log.Printf("Using custom resolv.conf path: %s", resolvConfPath)
+	}
+
+	file, err := os.Open(resolvConfPath)
+	if err != nil {
+		log.Printf("Warning: Failed to open %s: %v, falling back to 127.0.0.1", resolvConfPath, err)
+		return []string{"127.0.0.1:53"}
+	}
+	defer file.Close()
+
+	var resolvers []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "nameserver") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				// Add default port 53 if not specified
+				resolver := parts[1]
+				if !strings.Contains(resolver, ":") {
+					resolver = net.JoinHostPort(resolver, "53")
+				}
+				resolvers = append(resolvers, resolver)
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("Warning: Error reading %s: %v", resolvConfPath, err)
+	}
+
+	if len(resolvers) == 0 {
+		log.Printf("Warning: No nameservers found in %s, falling back to 127.0.0.1", resolvConfPath)
+		return []string{"127.0.0.1:53"}
+	}
+
+	log.Printf("Loaded system DNS resolvers from %s: %v", resolvConfPath, resolvers)
+	return resolvers
 }
 
 func main() {
@@ -90,6 +139,12 @@ func parseConfig() Config {
 		config.OriginalDomain = config.OriginalDomain + "."
 	}
 
+	// Load system resolvers if needed
+	if config.DNSResolver == "none" || config.DNSResolver == "" {
+		config.systemResolvers = loadResolversFromResolvConf()
+		log.Printf("Using system DNS resolvers: %v", config.systemResolvers)
+	}
+
 	return config
 }
 
@@ -137,11 +192,11 @@ func handleAQuery(w dns.ResponseWriter, r *dns.Msg, m *dns.Msg, q dns.Question, 
 	var err error
 
 	if config.DNSResolver == "none" || config.DNSResolver == "" {
-		// Use host resolver
-		ipv4Addrs, err = lookupHostA(originalName)
+		// Use system resolvers
+		ipv4Addrs, err = lookupHostA(originalName, config)
 	} else {
 		// Use specified resolver
-		ipv4Addrs, err = lookupHostAWithResolver(originalName, config.DNSResolver)
+		ipv4Addrs, err = lookupHostAWithResolver(originalName, net.JoinHostPort(config.DNSResolver, "53"))
 	}
 
 	if err != nil {
@@ -186,11 +241,11 @@ func handleAAAAQuery(w dns.ResponseWriter, r *dns.Msg, m *dns.Msg, q dns.Questio
 	var err error
 
 	if config.DNSResolver == "none" || config.DNSResolver == "" {
-		// Use host resolver
-		ipv6Addrs, err = lookupHostAAAA(originalName)
+		// Use system resolvers
+		ipv6Addrs, err = lookupHostAAAA(originalName, config)
 	} else {
 		// Use specified resolver
-		ipv6Addrs, err = lookupHostAAAAWithResolver(originalName, config.DNSResolver)
+		ipv6Addrs, err = lookupHostAAAAWithResolver(originalName, net.JoinHostPort(config.DNSResolver, "53"))
 	}
 
 	if err != nil {
@@ -203,7 +258,7 @@ func handleAAAAQuery(w dns.ResponseWriter, r *dns.Msg, m *dns.Msg, q dns.Questio
 	log.Printf("Resolved AAAA records for %s: %v", originalName, ipv6Addrs)
 
 	for _, ip := range ipv6Addrs {
-		if ipv6 := ip.To16(); ipv6 != nil && !ip.To4().Equal(ipv6) { // Ensure it's IPv6, not IPv4
+		if ipv6 := ip.To16(); ipv6 != nil && ip.To4() == nil { // Ensure it's IPv6, not IPv4
 			m.Answer = append(m.Answer, &dns.AAAA{
 				Hdr:  dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 60},
 				AAAA: ipv6,
@@ -216,18 +271,40 @@ func handleAAAAQuery(w dns.ResponseWriter, r *dns.Msg, m *dns.Msg, q dns.Questio
 
 func passthrough(w dns.ResponseWriter, r *dns.Msg, config Config) {
 	if config.DNSResolver == "none" || config.DNSResolver == "" {
-		// If no resolver specified, use host resolver
-		// Create client with default resolver
-		c := new(dns.Client)
-		resp, _, err := c.Exchange(r, "127.0.0.1:53")
-		if err != nil {
-			log.Printf("Error in passthrough resolution: %v", err)
+		// Use system resolvers from /etc/resolv.conf
+		if len(config.systemResolvers) > 0 {
+			// Try each resolver until one works
+			var lastErr error
+			for _, resolver := range config.systemResolvers {
+				log.Printf("Trying system resolver: %s", resolver)
+				c := new(dns.Client)
+				resp, _, err := c.Exchange(r, resolver)
+				if err == nil {
+					w.WriteMsg(resp)
+					return
+				}
+				lastErr = err
+				log.Printf("Error using system resolver %s: %v", resolver, err)
+			}
+			// All resolvers failed
+			log.Printf("All system resolvers failed, last error: %v", lastErr)
 			m := new(dns.Msg)
 			m.SetRcode(r, dns.RcodeServerFailure)
 			w.WriteMsg(m)
-			return
+		} else {
+			// Fallback to localhost if no system resolvers
+			log.Printf("No system resolvers available, falling back to 127.0.0.1:53")
+			c := new(dns.Client)
+			resp, _, err := c.Exchange(r, "127.0.0.1:53")
+			if err != nil {
+				log.Printf("Error in fallback resolution: %v", err)
+				m := new(dns.Msg)
+				m.SetRcode(r, dns.RcodeServerFailure)
+				w.WriteMsg(m)
+				return
+			}
+			w.WriteMsg(resp)
 		}
-		w.WriteMsg(resp)
 	} else {
 		// Use the specified resolver
 		c := new(dns.Client)
@@ -243,7 +320,22 @@ func passthrough(w dns.ResponseWriter, r *dns.Msg, config Config) {
 	}
 }
 
-func lookupHostA(hostname string) ([]net.IP, error) {
+func lookupHostA(hostname string, config Config) ([]net.IP, error) {
+	if len(config.systemResolvers) > 0 {
+		// Try each resolver until one works
+		var lastErr error
+		for _, resolver := range config.systemResolvers {
+			ips, err := lookupHostAWithResolver(hostname, resolver)
+			if err == nil {
+				return ips, nil
+			}
+			lastErr = err
+			log.Printf("Error using system resolver %s for A lookup: %v", resolver, err)
+		}
+		return nil, lastErr
+	}
+
+	// Fallback to Go's standard resolver
 	ips, err := net.LookupIP(hostname)
 	if err != nil {
 		return nil, err
@@ -258,7 +350,22 @@ func lookupHostA(hostname string) ([]net.IP, error) {
 	return ipv4s, nil
 }
 
-func lookupHostAAAA(hostname string) ([]net.IP, error) {
+func lookupHostAAAA(hostname string, config Config) ([]net.IP, error) {
+	if len(config.systemResolvers) > 0 {
+		// Try each resolver until one works
+		var lastErr error
+		for _, resolver := range config.systemResolvers {
+			ips, err := lookupHostAAAAWithResolver(hostname, resolver)
+			if err == nil {
+				return ips, nil
+			}
+			lastErr = err
+			log.Printf("Error using system resolver %s for AAAA lookup: %v", resolver, err)
+		}
+		return nil, lastErr
+	}
+
+	// Fallback to Go's standard resolver
 	ips, err := net.LookupIP(hostname)
 	if err != nil {
 		return nil, err

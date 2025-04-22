@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tsdnsreflector-config-sysresolver
+data:
+  SITEID: "1"
+  REFLECTED_DOMAIN: "cluster1.local"
+  ORIGINAL_DOMAIN: "cluster.local"
+  DNS_RESOLVER: "none"
+  FORCE_4VIA6: "false"
+  LISTEN_ADDR: ":53" 
