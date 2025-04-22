@@ -1,0 +1,64 @@
+version: '3'
+
+services:
+  mock_resolver:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock
+    container_name: mock_resolver
+    networks:
+      test_net:
+        ipv4_address: 172.28.1.10
+        ipv6_address: fdbb:cbf8:2702::a
+
+  tsdnsreflector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tsdnsreflector
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+    environment:
+      - SITEID=2
+      - REFLECTED_DOMAIN=cluster2.local
+      - ORIGINAL_DOMAIN=cluster.local
+      - DNS_RESOLVER=fdbb:cbf8:2702::a
+      - FORCE_4VIA6=false
+      - LISTEN_ADDR=:53
+    restart: unless-stopped
+    depends_on:
+      - mock_resolver
+    networks:
+      test_net:
+        ipv4_address: 172.28.1.2
+
+  dns_tester:
+    image: alpine:latest
+    container_name: dns_tester
+    command: >
+      sh -c "
+      apk add --no-cache bind-tools &&
+      echo 'nameserver 172.28.1.2' > /etc/resolv.conf &&
+      echo '===== Starting DNS tests =====' &&
+      sleep 10 &&
+      echo '===== Testing DNS resolution =====' &&
+      echo 'Query: tsdnsreflector.tailscale.svc.cluster2.local (AAAA)' &&
+      nslookup -type=AAAA tsdnsreflector.tailscale.svc.cluster2.local 172.28.1.2 &&
+      echo '===== Test complete =====' &&
+      tail -f /dev/null
+      "
+    depends_on:
+      - tsdnsreflector
+    networks:
+      test_net:
+        ipv4_address: 172.28.1.3
+
+networks:
+  test_net:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.28.1.0/24
+        - subnet: fdbb:cbf8:2702::/64 

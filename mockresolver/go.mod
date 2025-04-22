@@ -1,4 +1,4 @@
-module github.com/rajsingh/tsdnsreflector
+module github.com/rajsingh/mockresolver
 
 go 1.21
 

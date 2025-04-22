@@ -1,0 +1,28 @@
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# Copy mock resolver code and dependencies
+COPY mockresolver/ ./
+
+# Download dependencies
+RUN go mod download
+
+# Build the binary
+RUN go build -o mock_resolver .
+
+# Create a minimal runtime image
+FROM alpine:3.19
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /app
+
+# Copy the binary from the builder stage
+COPY --from=builder /app/mock_resolver .
+
+# Run as non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+
+ENTRYPOINT ["/app/mock_resolver"] 

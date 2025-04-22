@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tsdnsreflector-config-alt
+data:
+  SITEID: "2"
+  REFLECTED_DOMAIN: "cluster2.local"
+  ORIGINAL_DOMAIN: "cluster.local"
+  DNS_RESOLVER: "fdbb:cbf8:2702::a"
+  FORCE_4VIA6: "false"
+  LISTEN_ADDR: ":53" 
