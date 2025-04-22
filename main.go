@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"flag"
 
 	"github.com/miekg/dns"
 )
@@ -19,9 +20,16 @@ var (
 	dnsResolver       *net.Resolver
 	serverPort        string
 	force4via6        bool
+	isTestingMode     bool  // Flag to skip initialization during tests
 )
 
 func init() {
+	// Check for testing mode
+	if flag.Lookup("test.v") != nil || os.Getenv("TESTING_MODE") == "true" {
+		isTestingMode = true
+		return
+	}
+
 	var err error
 	
 	siteIDStr, exists := os.LookupEnv("SITE_ID")
@@ -148,6 +156,37 @@ func IPv4ToTailscale4via6(ipv4 net.IP, siteID int) (net.IP, error) {
 	return ipv6, nil
 }
 
+// getDomainConversion converts a hostname from reflected domain to original domain
+func getDomainConversion(hostname string, reflectedDomain string, originalDomain string) string {
+	// Ensure hostname has trailing dot for proper handling
+	if !strings.HasSuffix(hostname, ".") {
+		hostname = hostname + "."
+	}
+	
+	// Check if the hostname has the reflected domain suffix
+	if strings.HasSuffix(hostname, reflectedDomain) {
+		// Extract hostname without the reflected domain
+		prefix := strings.TrimSuffix(hostname, reflectedDomain)
+		
+		// Handle case where prefix is empty (exact domain match)
+		if prefix == "" {
+			return originalDomain
+		}
+		
+		// Handle case where prefix ends with a dot
+		prefix = strings.TrimSuffix(prefix, ".")
+		
+		// Reconstruct the hostname with the original domain
+		if prefix != "" {
+			return prefix + "." + strings.TrimPrefix(originalDomain, ".")
+		}
+		return originalDomain
+	}
+	
+	// If it doesn't have the suffix, return the original hostname
+	return hostname
+}
+
 func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	m := new(dns.Msg)
 	m.SetReply(r)
@@ -168,15 +207,10 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 		// Check if the query is for our reflected domain
 		if isSuffix {
-			// Extract the hostname part (removing the reflected domain suffix)
-			hostnamePart := strings.TrimSuffix(questionName, reflectedDomain)
-			
-			// Reconstruct with original domain
-			originalName := hostnamePart + originalDomain
+			// Convert the domain using the new helper function
+			originalName := getDomainConversion(questionName, reflectedDomain, originalDomain)
 			
 			log.Printf("Converting hostname: %s -> %s", questionName, originalName)
-			log.Printf("Components: hostnamePart=%q, reflectedDomain=%q, originalDomain=%q", 
-				hostnamePart, reflectedDomain, originalDomain)
 			
 			// Handle AAAA queries
 			if q.Qtype == dns.TypeAAAA {

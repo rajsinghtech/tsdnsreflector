@@ -1,8 +1,8 @@
-module github.com/yourusername/tsdnsreflector
+module github.com/rajsingh/tsdnsreflector
 
-go 1.21
+go 1.20
 
-require github.com/miekg/dns v1.1.58
+require github.com/miekg/dns v1.1.56
 
 require (
 	golang.org/x/mod v0.14.0 // indirect
