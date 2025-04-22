@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
@@ -21,13 +21,6 @@ WORKDIR /app
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/tsdnsreflector .
-
-# Default to standard DNS port, but allow override
-ENV PORT="53"
-
-# Dynamically expose the port based on PORT env var
-EXPOSE ${PORT}/udp
-EXPOSE ${PORT}/tcp
 
 # Run as non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
