@@ -9,3 +9,5 @@ data:
   ipv4_domain: "cluster.local"
   # Optional: custom DNS resolver in the format "host:port"
   # dns_resolver: "8.8.8.8:53" 
+  # Optional: force 4via6 mode
+  force_4via6: "true"

@@ -18,9 +18,11 @@ This is particularly useful for networks with overlapping IPv4 subnets when usin
 When a client queries a hostname in the IPv6 domain:
 
 - **For AAAA queries**: Returns the IPv6 address in Tailscale 4via6 format.
-- **For A queries**: Also returns the IPv6 address as an AAAA record, forcing clients to use IPv6.
+- **For A queries**: The behavior depends on the FORCE_4VIA6 setting:
+  - When FORCE_4VIA6=true (default): Returns the IPv6 address as an AAAA record, forcing clients to use IPv6.
+  - When FORCE_4VIA6=false: Returns the original A record with IPv4 address.
 
-This ensures that all traffic to the IPv6 domain goes through the Tailscale 4via6 routes, even when applications request A records.
+This allows you to control whether to force all traffic through Tailscale 4via6 routes or allow direct IPv4 access.
 
 ## Configuration
 
@@ -34,6 +36,7 @@ The following environment variables are optional:
 
 - `DNS_RESOLVER`: Custom DNS resolver to use for lookups in the format "host:port" (e.g., "8.8.8.8:53"). If not specified, the system resolver will be used.
 - `PORT`: Custom port to run the DNS server on (e.g., "5353"). If not specified, the standard DNS port 53 will be used.
+- `FORCE_4VIA6`: Controls whether A queries for the IPv6 domain return AAAA records (true) or A records (false). Default is true.
 
 All required environment variables must be provided or the application will fail to start.
 
@@ -46,13 +49,14 @@ IPV6_DOMAIN = cluster1.local
 IPV4_DOMAIN = cluster.local
 DNS_RESOLVER = 8.8.8.8:53  # Optional, uses Google DNS
 PORT = 5353               # Optional, uses port 5353 instead of 53
+FORCE_4VIA6 = false       # Optional, allows A records to be returned directly
 ```
 
-When a client requests `test.default.svc.cluster1.local`, the server will:
-1. Convert to `test.default.svc.cluster.local`
-2. Look up the A record, which resolves to `10.1.1.0` (using the specified DNS resolver if provided)
-3. Convert `10.1.1.0` to `fd7a:115c:a1e0:b1a:0:7:a01:100` using SITE_ID=7
-4. Return the AAAA record with the IPv6 address
+When a client requests `test.default.svc.cluster1.local` with an A query type:
+1. The server converts to `test.default.svc.cluster.local`
+2. Looks up the A record, which resolves to `10.1.1.0`
+3. If FORCE_4VIA6=true, it converts `10.1.1.0` to `fd7a:115c:a1e0:b1a:0:7:a01:100` and returns an AAAA record
+4. If FORCE_4VIA6=false, it returns the original A record with `10.1.1.0`
 
 ## Docker Usage
 
@@ -65,6 +69,7 @@ docker run -p 5353:5353/udp -p 5353:5353/tcp \
   -e IPV4_DOMAIN=cluster.local \
   -e DNS_RESOLVER=8.8.8.8:53 \  # Optional
   -e PORT=5353 \                # Optional
+  -e FORCE_4VIA6=false \        # Optional
   yourusername/tsdnsreflector:latest
 ```
 

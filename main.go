@@ -18,6 +18,7 @@ var (
 	ipv4Domain  string
 	dnsResolver *net.Resolver
 	serverPort  string
+	force4via6  bool
 )
 
 func init() {
@@ -52,6 +53,25 @@ func init() {
 	}
 	if !strings.HasSuffix(ipv4Domain, ".") {
 		ipv4Domain = ipv4Domain + "."
+	}
+	
+	// Check for FORCE_4VIA6 flag
+	force4via6Str, exists := os.LookupEnv("FORCE_4VIA6")
+	if exists {
+		if strings.ToLower(force4via6Str) == "true" || force4via6Str == "1" {
+			force4via6 = true
+			log.Printf("FORCE_4VIA6 enabled: A queries will be answered with AAAA records")
+		} else if strings.ToLower(force4via6Str) == "false" || force4via6Str == "0" {
+			force4via6 = false
+			log.Printf("FORCE_4VIA6 disabled: A queries will be answered with A records")
+		} else {
+			log.Printf("Invalid FORCE_4VIA6 value: %s - must be 'true', 'false', '1', or '0'. Defaulting to true", force4via6Str)
+			force4via6 = true
+		}
+	} else {
+		// Default to true for backward compatibility
+		force4via6 = true
+		log.Printf("FORCE_4VIA6 not specified, defaulting to true (A queries will be answered with AAAA records)")
 	}
 	
 	// Check for custom server port
@@ -136,6 +156,82 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 		// Check if the query is for our IPv6 domain
 		if strings.HasSuffix(q.Name, ipv6Domain) {
+			// For AAAA queries, first try to resolve directly as IPv6
+			if q.Qtype == dns.TypeAAAA {
+				log.Printf("Attempting direct AAAA lookup for %s", q.Name)
+				// Try to get native AAAA records first
+				ips, err := dnsResolver.LookupIP(ctx, "ip6", strings.TrimSuffix(q.Name, "."))
+				
+				// If we found actual IPv6 addresses, return them directly
+				if err == nil && len(ips) > 0 {
+					hasValidIPv6 := false
+					for _, ip := range ips {
+						if ip.To4() == nil { // This is a proper IPv6 address
+							log.Printf("Found native IPv6 address: %s", ip)
+							aaaa := &dns.AAAA{
+								Hdr: dns.RR_Header{
+									Name:   q.Name,
+									Rrtype: dns.TypeAAAA,
+									Class:  dns.ClassINET,
+									Ttl:    300,
+								},
+								AAAA: ip,
+							}
+							m.Answer = append(m.Answer, aaaa)
+							hasValidIPv6 = true
+						}
+					}
+					
+					// If we already have valid IPv6 addresses, continue to the next question
+					if hasValidIPv6 {
+						log.Printf("Returning native IPv6 addresses for %s", q.Name)
+						continue
+					}
+				}
+				
+				// If no IPv6 addresses found, log and continue to IPv4 conversion
+				log.Printf("No native IPv6 addresses found, falling back to IPv4 conversion")
+			} else if q.Qtype == dns.TypeA && !force4via6 {
+				// If this is an A query and FORCE_4VIA6 is false, handle as normal A query
+				log.Printf("A record query with FORCE_4VIA6=false, returning normal A record")
+				
+				// Convert from IPv6 domain to IPv4 domain for lookup
+				ipv4Name := strings.TrimSuffix(q.Name, ipv6Domain) + ipv4Domain
+				log.Printf("Looking up A record for %s", ipv4Name)
+
+				// Look up the A record
+				ips, err := dnsResolver.LookupIP(ctx, "ip4", strings.TrimSuffix(ipv4Name, "."))
+				if err != nil {
+					log.Printf("Error looking up A record: %v", err)
+					continue
+				}
+
+				// Return A records directly
+				for _, ip := range ips {
+					if ip.To4() != nil {
+						log.Printf("Returning A record: %s", ip)
+						a := &dns.A{
+							Hdr: dns.RR_Header{
+								Name:   q.Name,
+								Rrtype: dns.TypeA,
+								Class:  dns.ClassINET,
+								Ttl:    300,
+							},
+							A: ip.To4(),
+						}
+						m.Answer = append(m.Answer, a)
+					}
+				}
+				
+				// Continue to next question since we've handled this one
+				continue
+			}
+			
+			// If we get here, we need to do the IPv4-to-IPv6 conversion
+			// This happens for:
+			// 1. AAAA queries that didn't find native IPv6 addresses
+			// 2. A queries when FORCE_4VIA6 is true
+			
 			// Convert from IPv6 domain to IPv4 domain
 			ipv4Name := strings.TrimSuffix(q.Name, ipv6Domain) + ipv4Domain
 			log.Printf("Looking up A record for %s", ipv4Name)
@@ -171,9 +267,10 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 							AAAA: ipv6,
 						}
 						m.Answer = append(m.Answer, aaaa)
-					} else if q.Qtype == dns.TypeA {
-						// For A queries to the IPv6 domain, ALSO return the IPv6 address but as AAAA record
-						log.Printf("Received A query for IPv6 domain, returning AAAA record instead")
+					} else if q.Qtype == dns.TypeA && force4via6 {
+						// For A queries to the IPv6 domain when FORCE_4VIA6 is true,
+						// return the IPv6 address as AAAA record
+						log.Printf("FORCE_4VIA6=true: Returning AAAA record for A query")
 						aaaa := &dns.AAAA{
 							Hdr: dns.RR_Header{
 								Name:   q.Name,
