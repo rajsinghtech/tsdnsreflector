@@ -13,12 +13,12 @@ import (
 )
 
 var (
-	siteID      int
-	ipv6Domain  string
-	ipv4Domain  string
-	dnsResolver *net.Resolver
-	serverPort  string
-	force4via6  bool
+	siteID            int
+	reflectedDomain   string
+	originalDomain    string
+	dnsResolver       *net.Resolver
+	serverPort        string
+	force4via6        bool
 )
 
 func init() {
@@ -37,22 +37,22 @@ func init() {
 		log.Fatalf("SITE_ID must be between 0 and 65535")
 	}
 
-	ipv6Domain, exists = os.LookupEnv("IPV6_DOMAIN")
+	reflectedDomain, exists = os.LookupEnv("REFLECTED_DOMAIN")
 	if !exists {
-		log.Fatalf("IPV6_DOMAIN environment variable is required")
+		log.Fatalf("REFLECTED_DOMAIN environment variable is required")
 	}
 
-	ipv4Domain, exists = os.LookupEnv("IPV4_DOMAIN")
+	originalDomain, exists = os.LookupEnv("ORIGINAL_DOMAIN")
 	if !exists {
-		log.Fatalf("IPV4_DOMAIN environment variable is required")
+		log.Fatalf("ORIGINAL_DOMAIN environment variable is required")
 	}
 
 	// Ensure domains end with a dot for proper DNS comparison
-	if !strings.HasSuffix(ipv6Domain, ".") {
-		ipv6Domain = ipv6Domain + "."
+	if !strings.HasSuffix(reflectedDomain, ".") {
+		reflectedDomain = reflectedDomain + "."
 	}
-	if !strings.HasSuffix(ipv4Domain, ".") {
-		ipv4Domain = ipv4Domain + "."
+	if !strings.HasSuffix(originalDomain, ".") {
+		originalDomain = originalDomain + "."
 	}
 	
 	// Check for FORCE_4VIA6 flag
@@ -154,17 +154,20 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	for _, q := range r.Question {
 		log.Printf("Received query for %s (type: %d)", q.Name, q.Qtype)
 
-		// Check if the query is for our IPv6 domain
-		if strings.HasSuffix(q.Name, ipv6Domain) {
-			// For AAAA queries, first try to resolve directly as IPv6
+		// Check if the query is for our reflected domain
+		if strings.HasSuffix(q.Name, reflectedDomain) {
+			originalName := strings.TrimSuffix(q.Name, reflectedDomain) + originalDomain
+			
+			// Handle AAAA queries
 			if q.Qtype == dns.TypeAAAA {
-				log.Printf("Attempting direct AAAA lookup for %s", q.Name)
-				// Try to get native AAAA records first
-				ips, err := dnsResolver.LookupIP(ctx, "ip6", strings.TrimSuffix(q.Name, "."))
+				log.Printf("AAAA query for %s, looking up AAAA records for %s", q.Name, originalName)
 				
-				// If we found actual IPv6 addresses, return them directly
+				// First try to get native AAAA records from original domain
+				ips, err := dnsResolver.LookupIP(ctx, "ip6", strings.TrimSuffix(originalName, "."))
+				hasNativeAAAA := false
+				
 				if err == nil && len(ips) > 0 {
-					hasValidIPv6 := false
+					// Process any IPv6 addresses we found directly
 					for _, ip := range ips {
 						if ip.To4() == nil { // This is a proper IPv6 address
 							log.Printf("Found native IPv6 address: %s", ip)
@@ -178,110 +181,51 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 								AAAA: ip,
 							}
 							m.Answer = append(m.Answer, aaaa)
-							hasValidIPv6 = true
+							hasNativeAAAA = true
 						}
-					}
-					
-					// If we already have valid IPv6 addresses, continue to the next question
-					if hasValidIPv6 {
-						log.Printf("Returning native IPv6 addresses for %s", q.Name)
-						continue
 					}
 				}
 				
-				// If no IPv6 addresses found, log and continue to IPv4 conversion
-				log.Printf("No native IPv6 addresses found, falling back to IPv4 conversion")
-			} else if q.Qtype == dns.TypeA && !force4via6 {
-				// If this is an A query and FORCE_4VIA6 is false, handle as normal A query
-				log.Printf("A record query with FORCE_4VIA6=false, returning normal A record")
+				// If we found native AAAA records, we're done with this question
+				if hasNativeAAAA {
+					log.Printf("Returning native IPv6 addresses for %s", q.Name)
+					continue
+				}
 				
-				// Convert from IPv6 domain to IPv4 domain for lookup
-				ipv4Name := strings.TrimSuffix(q.Name, ipv6Domain) + ipv4Domain
-				log.Printf("Looking up A record for %s", ipv4Name)
-
-				// Look up the A record
-				ips, err := dnsResolver.LookupIP(ctx, "ip4", strings.TrimSuffix(ipv4Name, "."))
+				// Otherwise, fall back to A record lookup and conversion
+				log.Printf("No native AAAA records found, falling back to A record lookup and conversion")
+				ips, err = dnsResolver.LookupIP(ctx, "ip4", strings.TrimSuffix(originalName, "."))
 				if err != nil {
 					log.Printf("Error looking up A record: %v", err)
 					continue
 				}
-
-				// Return A records directly
-				for _, ip := range ips {
-					if ip.To4() != nil {
-						log.Printf("Returning A record: %s", ip)
-						a := &dns.A{
-							Hdr: dns.RR_Header{
-								Name:   q.Name,
-								Rrtype: dns.TypeA,
-								Class:  dns.ClassINET,
-								Ttl:    300,
-							},
-							A: ip.To4(),
-						}
-						m.Answer = append(m.Answer, a)
-					}
-				}
 				
-				// Continue to next question since we've handled this one
-				continue
-			}
-			
-			// If we get here, we need to do the IPv4-to-IPv6 conversion
-			// This happens for:
-			// 1. AAAA queries that didn't find native IPv6 addresses
-			// 2. A queries when FORCE_4VIA6 is true
-			
-			// Convert from IPv6 domain to IPv4 domain
-			ipv4Name := strings.TrimSuffix(q.Name, ipv6Domain) + ipv4Domain
-			log.Printf("Looking up A record for %s", ipv4Name)
-
-			// Look up the A record
-			ips, err := dnsResolver.LookupIP(ctx, "ip4", strings.TrimSuffix(ipv4Name, "."))
-			if err != nil {
-				log.Printf("Error looking up A record: %v", err)
-				continue
-			}
-
-			// Process any IPv4 addresses we found
-			for _, ip := range ips {
-				if ip.To4() != nil {
-					// Convert IPv4 to Tailscale 4via6 format
-					ipv6, err := IPv4ToTailscale4via6(ip, siteID)
+				// Convert A records to AAAA and add to response
+				addConvertedARecords(m, q.Name, ips)
+			} else if q.Qtype == dns.TypeA {
+				// Handle A queries
+				if force4via6 {
+					// With force4via6 enabled, return AAAA records for A queries
+					log.Printf("A query with force4via6=true: looking up A records for %s and converting to AAAA", originalName)
+					ips, err := dnsResolver.LookupIP(ctx, "ip4", strings.TrimSuffix(originalName, "."))
 					if err != nil {
-						log.Printf("Error converting to IPv6: %v", err)
+						log.Printf("Error looking up A record: %v", err)
 						continue
 					}
-
-					log.Printf("Converted %s to %s", ip, ipv6)
 					
-					// For AAAA queries, return the IPv6 address
-					if q.Qtype == dns.TypeAAAA {
-						aaaa := &dns.AAAA{
-							Hdr: dns.RR_Header{
-								Name:   q.Name,
-								Rrtype: dns.TypeAAAA,
-								Class:  dns.ClassINET,
-								Ttl:    300,
-							},
-							AAAA: ipv6,
-						}
-						m.Answer = append(m.Answer, aaaa)
-					} else if q.Qtype == dns.TypeA && force4via6 {
-						// For A queries to the IPv6 domain when FORCE_4VIA6 is true,
-						// return the IPv6 address as AAAA record
-						log.Printf("FORCE_4VIA6=true: Returning AAAA record for A query")
-						aaaa := &dns.AAAA{
-							Hdr: dns.RR_Header{
-								Name:   q.Name,
-								Rrtype: dns.TypeAAAA,
-								Class:  dns.ClassINET,
-								Ttl:    300,
-							},
-							AAAA: ipv6,
-						}
-						m.Answer = append(m.Answer, aaaa)
+					// Convert A records to AAAA and add to response
+					addConvertedARecords(m, q.Name, ips)
+				} else {
+					// Without force4via6, return normal A records
+					log.Printf("A query with force4via6=false: looking up A records for %s", originalName)
+					ips, err := dnsResolver.LookupIP(ctx, "ip4", strings.TrimSuffix(originalName, "."))
+					if err != nil {
+						log.Printf("Error looking up A record: %v", err)
+						continue
 					}
+					
+					// Add A records to response
+					addARecords(m, q.Name, ips)
 				}
 			}
 		} else {
@@ -292,20 +236,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 			case dns.TypeA:
 				ips, err := dnsResolver.LookupIP(ctx, "ip4", strings.TrimSuffix(q.Name, "."))
 				if err == nil {
-					for _, ip := range ips {
-						if ip.To4() != nil {
-							a := &dns.A{
-								Hdr: dns.RR_Header{
-									Name:   q.Name,
-									Rrtype: dns.TypeA,
-									Class:  dns.ClassINET,
-									Ttl:    300,
-								},
-								A: ip.To4(),
-							}
-							m.Answer = append(m.Answer, a)
-						}
-					}
+					addARecords(m, q.Name, ips)
 				}
 			case dns.TypeAAAA:
 				ips, err := dnsResolver.LookupIP(ctx, "ip6", strings.TrimSuffix(q.Name, "."))
@@ -332,9 +263,54 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	w.WriteMsg(m)
 }
 
+// addARecords adds A records to the DNS message
+func addARecords(m *dns.Msg, name string, ips []net.IP) {
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			a := &dns.A{
+				Hdr: dns.RR_Header{
+					Name:   name,
+					Rrtype: dns.TypeA,
+					Class:  dns.ClassINET,
+					Ttl:    300,
+				},
+				A: ip.To4(),
+			}
+			m.Answer = append(m.Answer, a)
+			log.Printf("Added A record: %s", ip)
+		}
+	}
+}
+
+// addConvertedARecords converts IPv4 addresses to Tailscale 4via6 format and adds them as AAAA records
+func addConvertedARecords(m *dns.Msg, name string, ips []net.IP) {
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			ipv6, err := IPv4ToTailscale4via6(ip, siteID)
+			if err != nil {
+				log.Printf("Error converting to IPv6: %v", err)
+				continue
+			}
+
+			log.Printf("Converted %s to %s", ip, ipv6)
+			
+			aaaa := &dns.AAAA{
+				Hdr: dns.RR_Header{
+					Name:   name,
+					Rrtype: dns.TypeAAAA,
+					Class:  dns.ClassINET,
+					Ttl:    300,
+				},
+				AAAA: ipv6,
+			}
+			m.Answer = append(m.Answer, aaaa)
+		}
+	}
+}
+
 func main() {
-	log.Printf("Starting tsdnsreflector with SITE_ID=%d, IPV6_DOMAIN=%s, IPV4_DOMAIN=%s", 
-		siteID, ipv6Domain, ipv4Domain)
+	log.Printf("Starting tsdnsreflector with SITE_ID=%d, REFLECTED_DOMAIN=%s, ORIGINAL_DOMAIN=%s", 
+		siteID, reflectedDomain, originalDomain)
 
 	// Create a new DNS server
 	dns.HandleFunc(".", handleDNSRequest)
