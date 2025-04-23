@@ -46,12 +46,19 @@ func loadResolversFromResolvConf() []string {
 		if strings.HasPrefix(line, "nameserver") {
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
-				// Add default port 53 if not specified
-				resolver := parts[1]
-				if !strings.Contains(resolver, ":") {
-					resolver = net.JoinHostPort(resolver, "53")
+				// Get the nameserver IP address
+				nameserver := parts[1]
+
+				// Check if this is a valid IP
+				ip := net.ParseIP(nameserver)
+				if ip == nil {
+					log.Printf("Warning: Invalid IP address in nameserver: %s", nameserver)
+					continue
 				}
-				resolvers = append(resolvers, resolver)
+
+				// Handle IPv4 and IPv6 addresses correctly
+				// For IPv6, net.JoinHostPort will add the brackets automatically
+				resolvers = append(resolvers, net.JoinHostPort(nameserver, "53"))
 			}
 		}
 	}
