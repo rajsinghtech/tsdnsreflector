@@ -1,0 +1,66 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+issues:
+  exclude-dirs:
+    - vendor
+  exclude-files:
+    - ".*\\.pb\\.go$"
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gocritic
+        - revive
+        - errcheck
+    - path: cmd/
+      linters:
+        - revive
+    - text: "should not use dot imports"
+      linters:
+        - revive
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-use-default: false
+
+linters:
+  enable:
+    - gocritic
+    - revive
+    - misspell
+    - bodyclose
+    - nilerr
+    - nilnil
+    - usestdlibvars
+  disable:
+    - gosec
+    - exhaustive
+    - gochecknoglobals
+    - gochecknoinits
+    - funlen
+    - gocognit
+    - cyclop
+
+linters-settings:
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport
+      - ifElseChain
+      - octalLiteral
+      - whyNoLint
+      - unnamedResult
+  
+  revive:
+    rules:
+      - name: var-naming
+        disabled: true
+      - name: exported
+        disabled: true

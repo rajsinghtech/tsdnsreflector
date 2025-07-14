@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  tsdnsreflector:
+    build: .
+    container_name: tsdnsreflector
+    ports:
+      - "53:53/udp"
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_HOSTNAME=${TS_HOSTNAME:-tsdnsreflector}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - DNS_PORT=53
+      - HTTP_PORT=8080
+      - BACKEND_DNS=8.8.8.8:53,1.1.1.1:53
+      - SITE_ID=1
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - LOG_QUERIES=true
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - ./config.hujson:/app/config.hujson:ro
+    networks:
+      - dns_network
+    restart: unless-stopped
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "nc", "-zu", "localhost", "53"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  dns-test:
+    image: alpine:latest
+    container_name: dns-test
+    command: |
+      sh -c "
+        apk add --no-cache bind-tools &&
+        echo 'Testing DNS resolution...' &&
+        nslookup cluster.local tsdnsreflector &&
+        echo 'DNS test completed'
+      "
+    depends_on:
+      - tsdnsreflector
+    networks:
+      - dns_network
+    profiles:
+      - test
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    networks:
+      - dns_network
+    profiles:
+      - monitoring
+
+volumes:
+  tailscale_state:
+    driver: local
+
+networks:
+  dns_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

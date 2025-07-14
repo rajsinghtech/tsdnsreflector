@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tsdnsreflector-config
+  namespace: tsdnsreflector
+data:
+  config.json: |
+    {
+      "global": {
+        "backend": {
+          "dnsServers": ["8.8.8.8:53", "1.1.1.1:53"],
+          "timeout": "5s",
+          "retries": 3
+        },
+        "cache": {
+          "maxSize": 10000,
+          "ttl": "300s"
+        }
+      },
+      "zones": {
+        "cluster1": {
+          "domains": ["*.cluster1.local"],
+          "backend": {
+            "dnsServers": ["10.0.0.10:53"],
+            "timeout": "5s",
+            "retries": 3
+          },
+          "reflectedDomain": "cluster.local",
+          "translateid": 1,
+          "prefixSubnet": "fd7a:115c:a1e0:b1a::/64",
+          "cache": {
+            "maxSize": 1000,
+            "ttl": "60s"
+          }
+        },
+        "cluster2": {
+          "domains": ["*.cluster2.local"],
+          "backend": {
+            "dnsServers": ["10.2.0.10:53"],
+            "timeout": "5s",
+            "retries": 3
+          }
+        },
+        "external": {
+          "domains": ["*"],
+          "backend": {
+            "dnsServers": ["8.8.8.8:53", "1.1.1.1:53"],
+            "timeout": "5s",
+            "retries": 3
+          }
+        }
+      }
+    }

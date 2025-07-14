@@ -1,0 +1,32 @@
+<svg width="80" height="80" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+  <!-- Bird body -->
+  <ellipse cx="40" cy="45" rx="18" ry="12" fill="#6B7280"/>
+  
+  <!-- Bird head -->
+  <circle cx="40" cy="25" r="10" fill="#6B7280"/>
+  
+  <!-- Bird beak -->
+  <polygon points="30,25 25,23 30,21" fill="#FFA500"/>
+  
+  <!-- Glasses frame connecting the two lenses -->
+  <path d="M 28,25 L 52,25" stroke="#000000" stroke-width="2" fill="none"/>
+  
+  <!-- Left lens (IPv4) - black circle -->
+  <circle cx="32" cy="25" r="8" fill="#000000" stroke="#000000" stroke-width="2"/>
+  <text x="32" y="29" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="8" font-weight="bold">4</text>
+  
+  <!-- Right lens (IPv6) - gray circle -->
+  <circle cx="48" cy="25" r="8" fill="#6B7280" stroke="#000000" stroke-width="2"/>
+  <text x="48" y="29" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="8" font-weight="bold">6</text>
+  
+  <!-- Bird wings -->
+  <ellipse cx="30" cy="40" rx="8" ry="15" fill="#4B5563" transform="rotate(-20 30 40)"/>
+  <ellipse cx="50" cy="40" rx="8" ry="15" fill="#4B5563" transform="rotate(20 50 40)"/>
+  
+  <!-- Bird tail feathers -->
+  <ellipse cx="40" cy="60" rx="6" ry="12" fill="#4B5563"/>
+  
+  <!-- Bird feet -->
+  <path d="M 35,55 L 33,65 M 35,65 L 37,65 M 31,65 L 29,65" stroke="#FFA500" stroke-width="2" fill="none"/>
+  <path d="M 45,55 L 47,65 M 45,65 L 43,65 M 49,65 L 51,65" stroke="#FFA500" stroke-width="2" fill="none"/>
+</svg>

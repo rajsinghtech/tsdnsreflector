@@ -1,0 +1,21 @@
+# Go
+coverage.out
+*.test
+
+# Tailscale state
+/var/lib/tailscale/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temp
+tmp/
+.tmp/

@@ -1,0 +1,80 @@
+{
+  // Simplified configuration - only global defaults and zone definitions
+  // Server settings, logging, and Tailscale config now via environment variables/flags
+  "global": {
+    "backend": {
+      "dnsServers": ["8.8.8.8:53", "1.1.1.1:53"],
+      "timeout": "5s",
+      "retries": 3
+    },
+    "cache": {
+      "maxSize": 10000,
+      "ttl": "300s"
+    },
+  },
+  "zones": {
+    "cluster1": {
+      // Zone enabled by presence in configuration
+      "domains": ["*.cluster1.local"],
+      "backend": {
+        "dnsServers": ["10.0.0.10:53"],
+        "timeout": "5s",
+        "retries": 3
+      },
+      // 4via6 translation enabled by translateid presence
+      "reflectedDomain": "cluster.local",
+      "translateid": 1,
+      "prefixSubnet": "fd7a:115c:a1e0:b1a::/64",
+      // Cache enabled by presence of config block
+      "cache": {
+        "maxSize": 1000,  // Zone-specific cache size limit
+        "ttl": "60s"      // TTL for cached entries
+      },
+      // External client access - defaults to false for security
+      // WARNING: 4via6 zones cannot allow external clients
+      "allowExternalClients": false
+    },
+    "internal": {
+      // Regular reflection (no 4via6) for internal domains
+      "domains": ["*.internal.example.com"],
+      "backend": {
+        "dnsServers": ["192.168.1.10:53"],
+        "timeout": "5s",
+        "retries": 3
+      },
+      // Regular reflection: reflectedDomain WITHOUT translateid
+      "reflectedDomain": "example.com"
+      // No translateid = regular IPv4/IPv6 reflection, not 4via6
+    },
+    "external": {
+      // Zone enabled by presence
+      "domains": ["*"],
+      "backend": {
+        "dnsServers": ["8.8.8.8:53", "1.1.1.1:53"],
+        "timeout": "5s",
+        "retries": 3
+      },
+      // No reflectedDomain = direct forwarding to backend
+      
+      // SECURITY WARNING: Setting allowExternalClients to true allows 
+      // non-Tailscale clients to use this zone. Only enable for public DNS!
+      "allowExternalClients": true  // Allow external clients for public DNS
+    },
+    "public-api": {
+      // Example: Public API DNS that external partners need to resolve
+      "domains": ["*.api.example.com", "*.public.example.com"],
+      "backend": {
+        "dnsServers": ["10.1.0.53:53"],  // Can be subnet-routed
+        "timeout": "5s",
+        "retries": 3
+      },
+      // External access allowed for specific public domains
+      "allowExternalClients": true,
+      "cache": {
+        "maxSize": 5000,
+        "ttl": "120s"
+      }
+    }
+    // To disable a zone: remove it entirely or comment it out
+  }
+}

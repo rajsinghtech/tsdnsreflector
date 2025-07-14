@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- namespace.yaml
+- serviceaccount.yaml
+- rbac.yaml
+- configmap.yaml
+- oauth-secret.yaml
+- statefulset.yaml
+- service.yaml
+
+commonLabels:
+  app: tsdnsreflector
+  component: dns-proxy
+
+images:
+- name: tsdnsreflector
+  newName: ghcr.io/rajsinghtech/tsdnsreflector
+  newTag: v1.1.0
