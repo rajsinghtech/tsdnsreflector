@@ -2,7 +2,7 @@ module github.com/rajsingh/tsdnsreflector
 
 go 1.24.0
 
-toolchain go1.24.4
+toolchain go1.24.5
 
 require (
 	github.com/miekg/dns v1.1.58
