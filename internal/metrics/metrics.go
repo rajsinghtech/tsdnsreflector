@@ -59,20 +59,12 @@ var (
 	)
 
 	// Cache metrics
-	CacheHits = promauto.NewCounterVec(
+	CacheOperations = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "tsdnsreflector_cache_hits_total",
-			Help: "Cache hits by zone",
+			Name: "tsdnsreflector_cache_operations_total",
+			Help: "Cache operations by zone and result",
 		},
-		[]string{"zone"},
-	)
-
-	CacheMisses = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "tsdnsreflector_cache_misses_total",
-			Help: "Cache misses by zone",
-		},
-		[]string{"zone"},
+		[]string{"zone", "result"}, // result: hit, miss
 	)
 
 	CacheSize = promauto.NewGaugeVec(
@@ -91,21 +83,13 @@ var (
 		[]string{"zone", "eviction_type"},
 	)
 
-	// External client access metrics
-	ExternalClientQueries = promauto.NewCounterVec(
+	// Client access metrics
+	ClientQueries = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "tsdnsreflector_external_client_queries_total",
-			Help: "DNS queries from external (non-Tailscale) clients by zone and status",
+			Name: "tsdnsreflector_client_queries_total",
+			Help: "DNS queries by zone, client type and status",
 		},
-		[]string{"zone", "status"}, // status: allowed, blocked
-	)
-
-	ExternalClientAccess = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "tsdnsreflector_external_client_access_total",
-			Help: "External client access attempts by zone",
-		},
-		[]string{"zone"},
+		[]string{"zone", "client_type", "status"}, // client_type: tailscale, external; status: allowed, blocked
 	)
 
 	// System status
@@ -167,11 +151,11 @@ func RecordBackendError(zone, backend string) {
 }
 
 func RecordCacheHit(zone string) {
-	CacheHits.WithLabelValues(zone).Inc()
+	CacheOperations.WithLabelValues(zone, "hit").Inc()
 }
 
 func RecordCacheMiss(zone string) {
-	CacheMisses.WithLabelValues(zone).Inc()
+	CacheOperations.WithLabelValues(zone, "miss").Inc()
 }
 
 func UpdateCacheSize(zone string, size int) {
@@ -205,9 +189,9 @@ func UpdateSystemMemoryUsage(alloc, sys, heapInuse uint64) {
 }
 
 func RecordExternalClientQuery(zone, status string) {
-	ExternalClientQueries.WithLabelValues(zone, status).Inc()
+	ClientQueries.WithLabelValues(zone, "external", status).Inc()
 }
 
-func RecordExternalClientAccess(zone string) {
-	ExternalClientAccess.WithLabelValues(zone).Inc()
+func RecordTailscaleClientQuery(zone string) {
+	ClientQueries.WithLabelValues(zone, "tailscale", "allowed").Inc()
 }

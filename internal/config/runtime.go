@@ -162,7 +162,6 @@ func (rc *RuntimeConfig) SetupEnvOnlyValues() {
 	rc.TSOAuthPreauthorized = defaultBool("TSDNS_TS_OAUTH_PREAUTHORIZED", true)
 }
 
-// GetOAuthClientID returns the OAuth client ID from file or env var
 func (rc *RuntimeConfig) GetOAuthClientID() (string, error) {
 	if rc.ClientIDFile != "" {
 		data, err := os.ReadFile(rc.ClientIDFile)
@@ -174,7 +173,6 @@ func (rc *RuntimeConfig) GetOAuthClientID() (string, error) {
 	return rc.TSAPIClientID, nil
 }
 
-// GetOAuthClientSecret returns the OAuth client secret from file or env var
 func (rc *RuntimeConfig) GetOAuthClientSecret() (string, error) {
 	if rc.ClientSecretFile != "" {
 		data, err := os.ReadFile(rc.ClientSecretFile)

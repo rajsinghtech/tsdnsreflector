@@ -53,7 +53,7 @@ Create `config.hujson` with your DNS zones:
   "zones": {
     "internal": {
       "domains": ["*.internal.local"],
-      "backend": {"dnsServers": ["100.64.1.10:53"]}, // Tailscale DNS server
+      "backend": {"dnsServers": ["100.64.1.10:53"]}, // Tailscale exposed DNS server
       "allowExternalClients": true
     },
     "cluster": {

@@ -331,7 +331,7 @@ func TestZoneValidationRules(t *testing.T) {
 				}
 			}`,
 			expectError: true,
-			errorString: "reflectedDomain is required when 4via6 (translateID) is configured",
+			errorString: "needs reflectedDomain for 4via6",
 		},
 		{
 			name: "multiple_zones_different_translateids",

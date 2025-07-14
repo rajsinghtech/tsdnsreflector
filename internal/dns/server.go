@@ -30,7 +30,7 @@ type Server struct {
 	tsnetServer   *tailscale.TSNetServer
 	handler       *TailscaleDNSHandler
 	zoneCaches    map[string]*cache.ZoneCache
-	memoryMonitor *memory.ZoneMemoryMonitor
+	memoryMonitor *memory.Monitor
 	logger        *logger.Logger
 }
 
@@ -86,13 +86,13 @@ func NewServerWithRuntime(cfg *config.Config, runtimeCfg *config.RuntimeConfig) 
 	forwarder := NewForwarder(cfg.Global.Backend, log)
 
 	// Initialize memory monitor
-	memoryLimits := memory.GlobalMemoryLimits{
+	memoryLimits := memory.Limits{
 		MaxZoneCount:     100,             // Max 100 zones
 		MaxTotalMemory:   500 * 1024 * 1024, // 500MB total
 		MaxCachePerZone:  50 * 1024 * 1024,  // 50MB per zone cache
 		MaxBufferPerZone: 10 * 1024 * 1024,  // 10MB per zone buffer
 	}
-	memoryMonitor := memory.NewZoneMemoryMonitor(log, memoryLimits)
+	memoryMonitor := memory.NewMonitor(log, memoryLimits)
 
 	// Initialize zone caches
 	zoneCaches := make(map[string]*cache.ZoneCache)
@@ -112,8 +112,7 @@ func NewServerWithRuntime(cfg *config.Config, runtimeCfg *config.RuntimeConfig) 
 			if maxSize == 0 {
 				maxSize = cfg.Global.Cache.MaxSize
 			}
-			ttl := zone.Cache.GetTTL()
-			
+			ttl, _ := config.ParseCacheTTL(zone.Cache.TTL)
 			zoneCaches[zoneName] = cache.NewZoneCacheWithName(maxSize, ttl, zoneName)
 			log.ZoneInfo(zoneName, "Zone cache initialized", "maxSize", maxSize, "ttl", ttl)
 		}
@@ -360,7 +359,7 @@ type TailscaleDNSHandler struct {
 	forwarder     *Forwarder
 	tsnetServer   *tailscale.TSNetServer
 	zoneCaches    map[string]*cache.ZoneCache
-	memoryMonitor *memory.ZoneMemoryMonitor
+	memoryMonitor *memory.Monitor
 	logger        *logger.Logger
 }
 
@@ -464,7 +463,6 @@ func (h *TailscaleDNSHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		if !isTailscaleClient && zone.AllowExternalClients {
 			h.logger.Info("External client accessing allowed zone", "client", clientIP.String(), "zone", zoneName, "domain", r.Question[0].Name)
 			metrics.RecordExternalClientQuery(zoneName, "allowed")
-			metrics.RecordExternalClientAccess(zoneName)
 		}
 		
 		// Use zone-specific backend with TSNet support (if available)
@@ -489,30 +487,20 @@ func (h *TailscaleDNSHandler) handleZoneQuery(w dns.ResponseWriter, r *dns.Msg, 
 	msg.SetReply(r)
 	msg.Authoritative = true
 
-	switch question.Qtype {
-	case dns.TypeAAAA:
+	if question.Qtype == dns.TypeAAAA {
 		via6IP, err := h.via6Trans.TranslateToVia6(question.Name)
 		if err != nil {
 			h.logger.ZoneError(zoneName, "4via6 translation failed", "domain", question.Name, "error", err)
 			metrics.RecordVia6Error(zoneName, "translation_failed")
 		} else {
 			metrics.RecordVia6Translation(zoneName)
-			rr := &dns.AAAA{
-				Hdr: dns.RR_Header{
-					Name:   question.Name,
-					Rrtype: dns.TypeAAAA,
-					Class:  dns.ClassINET,
-					Ttl:    h.runtimeCfg.DefaultTTL,
-				},
+			msg.Answer = append(msg.Answer, &dns.AAAA{
+				Hdr:  dns.RR_Header{Name: question.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: h.runtimeCfg.DefaultTTL},
 				AAAA: via6IP,
-			}
-			msg.Answer = append(msg.Answer, rr)
+			})
 		}
-	case dns.TypeA:
-		// For A queries on 4via6 domains, return NODATA (NOERROR with empty answer)
-		// This indicates the domain exists but has no A records
-		// msg.Rcode defaults to dns.RcodeSuccess (NOERROR)
 	}
+	// For A queries on 4via6 domains, return NODATA (empty answer)
 
 	// Cache the response if zone has caching enabled (before sending)
 	if zoneCache, exists := h.zoneCaches[zoneName]; exists {
@@ -567,33 +555,16 @@ func (h *TailscaleDNSHandler) handleMagicDNSQuery(w dns.ResponseWriter, r *dns.M
 	msg.SetReply(r)
 	msg.Authoritative = true
 
-	switch question.Qtype {
-	case dns.TypeA:
-		if ip.Is4() {
-			rr := &dns.A{
-				Hdr: dns.RR_Header{
-					Name:   question.Name,
-					Rrtype: dns.TypeA,
-					Class:  dns.ClassINET,
-					Ttl:    h.runtimeCfg.DefaultTTL,
-				},
-				A: ip.AsSlice(),
-			}
-			msg.Answer = append(msg.Answer, rr)
-		}
-	case dns.TypeAAAA:
-		if ip.Is6() {
-			rr := &dns.AAAA{
-				Hdr: dns.RR_Header{
-					Name:   question.Name,
-					Rrtype: dns.TypeAAAA,
-					Class:  dns.ClassINET,
-					Ttl:    h.runtimeCfg.DefaultTTL,
-				},
-				AAAA: ip.AsSlice(),
-			}
-			msg.Answer = append(msg.Answer, rr)
-		}
+	if question.Qtype == dns.TypeA && ip.Is4() {
+		msg.Answer = append(msg.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: question.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: h.runtimeCfg.DefaultTTL},
+			A:   ip.AsSlice(),
+		})
+	} else if question.Qtype == dns.TypeAAAA && ip.Is6() {
+		msg.Answer = append(msg.Answer, &dns.AAAA{
+			Hdr:  dns.RR_Header{Name: question.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: h.runtimeCfg.DefaultTTL},
+			AAAA: ip.AsSlice(),
+		})
 	}
 
 	if len(msg.Answer) == 0 {
@@ -703,23 +674,26 @@ func (f *Forwarder) Forward(w dns.ResponseWriter, r *dns.Msg) {
 	f.ForwardWithZone(w, r, "default")
 }
 
-// exchangeViaTSNet performs DNS exchange using TSNet dial for subnet route support
-func (f *Forwarder) exchangeViaTSNet(r *dns.Msg, backend, zoneName string) (*dns.Msg, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), f.timeout)
-	defer cancel()
-	
-	conn, err := f.tsnetServer.Dial(ctx, "udp", backend)
-	if err != nil {
-		f.logger.ZoneDebug(zoneName, "Failed to dial backend via TSNet", "backend", backend, "error", err)
-		metrics.RecordBackendError(zoneName, backend)
-		return nil, err
+// queryBackend queries a DNS backend, using TSNet if available
+func (f *Forwarder) queryBackend(r *dns.Msg, backend, zoneName string) (*dns.Msg, error) {
+	if f.tsnetServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), f.timeout)
+		defer cancel()
+		
+		conn, err := f.tsnetServer.Dial(ctx, "udp", backend)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = conn.Close() }()
+		
+		dnsConn := &dns.Conn{Conn: conn}
+		client := &dns.Client{Timeout: f.timeout}
+		resp, _, err := client.ExchangeWithConn(r, dnsConn)
+		return resp, err
 	}
-	defer func() { _ = conn.Close() }()
 	
-	// Use the TSNet connection for DNS exchange
-	dnsConn := &dns.Conn{Conn: conn}
 	client := &dns.Client{Timeout: f.timeout}
-	resp, _, err := client.ExchangeWithConn(r, dnsConn)
+	resp, _, err := client.Exchange(r, backend)
 	return resp, err
 }
 
@@ -733,23 +707,9 @@ func (f *Forwarder) ForwardWithZoneAndCache(w dns.ResponseWriter, r *dns.Msg, zo
 		for _, backend := range f.backends {
 			metrics.RecordBackendQuery(zoneName, backend)
 			
-			var resp *dns.Msg
-			var err error
-			
-			// Use TSNet dial if available for subnet route support
-			if f.tsnetServer != nil {
-				f.logger.ZoneDebug(zoneName, "Using TSNet dial for backend DNS (subnet route support)", "backend", backend)
-				resp, err = f.exchangeViaTSNet(r, backend, zoneName)
-			} else {
-				// Fallback to regular DNS client (no subnet route support)
-				f.logger.ZoneDebug(zoneName, "Using standard DNS client (no TSNet)", "backend", backend)
-				client := &dns.Client{Timeout: f.timeout}
-				resp, _, err = client.Exchange(r, backend)
-			}
-			
+			resp, err := f.queryBackend(r, backend, zoneName)
 			if err != nil {
 				lastErr = err
-				f.logger.ZoneDebug(zoneName, "Failed to forward to backend", "backend", backend, "attempt", i+1, "error", err)
 				metrics.RecordBackendError(zoneName, backend)
 				continue
 			}
@@ -813,8 +773,7 @@ func (s *Server) ReloadConfig(newCfg *config.Config) error {
 			if maxSize == 0 {
 				maxSize = newCfg.Global.Cache.MaxSize
 			}
-			ttl := zone.Cache.GetTTL()
-			
+			ttl, _ := config.ParseCacheTTL(zone.Cache.TTL)
 			// Reuse existing cache if configuration unchanged
 			if existingCache, exists := s.zoneCaches[zoneName]; exists {
 				newZoneCaches[zoneName] = existingCache

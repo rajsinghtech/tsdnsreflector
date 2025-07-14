@@ -64,8 +64,8 @@ func NewTranslator(cfg *config.Config, log *logger.Logger) (*Translator, error) 
 
 		log.ZoneInfo(name, "Adding 4via6 zone",
 			"domains", zone.Domains,
-			"reflectedDomain", zone.GetReflectedDomain(),
-			"translateID", zone.GetTranslateID())
+			"reflectedDomain", zone.ReflectedDomain,
+			"translateID", zone.TranslateID)
 
 		zoneTranslator, err := newZoneTranslator(name, zone)
 		if err != nil {
@@ -85,12 +85,15 @@ func NewTranslator(cfg *config.Config, log *logger.Logger) (*Translator, error) 
 }
 
 func newZoneTranslator(zoneName string, zone *config.Zone) (*ZoneTranslator, error) {
-	translateID := zone.GetTranslateID()
-	if translateID == 0 {
+	if zone.TranslateID == nil || *zone.TranslateID == 0 {
 		return nil, fmt.Errorf("translateID cannot be 0 (reserved)")
 	}
+	translateID := *zone.TranslateID
 
-	prefixSubnet := zone.GetPrefixSubnet()
+	prefixSubnet := zone.PrefixSubnet
+	if prefixSubnet == "" {
+		prefixSubnet = "fd7a:115c:a1e0:b1a::/64"
+	}
 	_, prefixNet, err := net.ParseCIDR(prefixSubnet)
 	if err != nil {
 		return nil, fmt.Errorf("invalid prefix subnet %s: %w", prefixSubnet, err)
@@ -101,7 +104,7 @@ func newZoneTranslator(zoneName string, zone *config.Zone) (*ZoneTranslator, err
 	}
 
 	rule := &Rule{
-		ReflectedDomain: zone.GetReflectedDomain(),
+		ReflectedDomain: zone.ReflectedDomain,
 		PrefixSubnet:    prefixSubnet,
 		TranslateID:     translateID,
 		PrefixNetwork:   prefixNet,

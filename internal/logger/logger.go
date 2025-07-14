@@ -97,24 +97,20 @@ func (l *Logger) WithZone(zoneName string) *Logger {
 	}
 }
 
-// ZoneInfo logs an info message with automatic zone context
 func (l *Logger) ZoneInfo(zone, msg string, args ...any) {
-	l.WithZone(zone).Info(msg, args...)
+	l.Info(msg, append([]any{"zone", zone}, args...)...)
 }
 
-// ZoneError logs an error message with automatic zone context
 func (l *Logger) ZoneError(zone, msg string, args ...any) {
-	l.WithZone(zone).Error(msg, args...)
+	l.Error(msg, append([]any{"zone", zone}, args...)...)
 }
 
-// ZoneDebug logs a debug message with automatic zone context
 func (l *Logger) ZoneDebug(zone, msg string, args ...any) {
-	l.WithZone(zone).Debug(msg, args...)
+	l.Debug(msg, append([]any{"zone", zone}, args...)...)
 }
 
-// ZoneWarn logs a warn message with automatic zone context
 func (l *Logger) ZoneWarn(zone, msg string, args ...any) {
-	l.WithZone(zone).Warn(msg, args...)
+	l.Warn(msg, append([]any{"zone", zone}, args...)...)
 }
 
 type tsnetStyleHandler struct {

@@ -165,8 +165,8 @@ func reloadConfiguration(server *dns.Server, configFile string) error {
 			logger.Default().Debug("Zone configured with 4via6",
 				"zone", name,
 				"domains", zone.Domains,
-				"reflectedDomain", zone.GetReflectedDomain(),
-				"translateID", zone.GetTranslateID())
+				"reflectedDomain", zone.ReflectedDomain,
+				"translateID", zone.TranslateID)
 		}
 	}
 

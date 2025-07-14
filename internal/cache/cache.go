@@ -95,29 +95,7 @@ func (zc *ZoneCache) Set(key string, response *dns.Msg) {
 	zc.memoryUsage += entrySize
 }
 
-// calculateDNSMsgSize accurately calculates the actual memory usage of a DNS message.
-//
-// This function provides precise memory measurement by accounting for all dynamic allocations
-// that unsafe.Sizeof() misses, including:
-//   - Slice backing arrays (Question, Answer, Ns, Extra sections)
-//   - String data in DNS names and record content
-//   - Type-specific DNS record data
-//   - Interface overhead for dns.RR implementations
-//
-// Memory Calculation Methodology:
-//   1. Base struct size: The fixed size of the dns.Msg struct itself
-//   2. Question section: For each question, add struct size + name string length
-//   3. Resource Record sections: For each RR in Answer/Ns/Extra, calculate:
-//      - Interface overhead (~24 bytes for interface{} storage)
-//      - RR header name string length
-//      - Type-specific data based on concrete RR type (A, AAAA, CNAME, etc.)
-//      - Variable-length data like TXT record strings
-//
-// This approach provides memory estimates accurate within ~5-10% of actual heap usage,
-// compared to unsafe.Sizeof() which underestimates by 80-90% for typical DNS responses.
-//
-// Performance: Benchmarks show ~1-13ns per call with zero allocations, making this
-// suitable for high-frequency cache operations.
+// calculateDNSMsgSize estimates the memory usage of a DNS message
 func (zc *ZoneCache) calculateDNSMsgSize(msg *dns.Msg) int64 {
 	if msg == nil {
 		return 0
@@ -145,26 +123,7 @@ func (zc *ZoneCache) calculateDNSMsgSize(msg *dns.Msg) int64 {
 	return size
 }
 
-// calculateRRSize calculates the memory usage of a DNS Resource Record.
-//
-// This function measures the actual memory footprint of DNS resource records by:
-//   1. Accounting for interface overhead (dns.RR is an interface)
-//   2. Including the RR header name string length
-//   3. Calculating type-specific data sizes for common record types:
-//      - A/AAAA: Fixed IP address data
-//      - CNAME/NS/PTR: Target name string
-//      - MX: Preference value + mail exchanger name
-//      - TXT: All text strings in the record
-//      - SOA: Nameserver + mailbox strings
-//      - SRV: Priority/weight/port + target name
-//   4. Falling back to string representation length for unknown types
-//
-// The 24-byte interface overhead accounts for Go's interface{} internal structure
-// which stores type information and data pointer.
 func (zc *ZoneCache) calculateRRSize(rr dns.RR) int64 {
-	if rr == nil {
-		return 0
-	}
 	
 	// Base RR interface overhead and header
 	size := int64(24) // interface overhead
@@ -242,7 +201,6 @@ func (zc *ZoneCache) Clear() {
 	zc.memoryUsage = 0
 }
 
-// Stop terminates the background cleanup routine
 func (zc *ZoneCache) Stop() {
 	close(zc.stopCleanup)
 }

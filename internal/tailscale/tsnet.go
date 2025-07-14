@@ -57,24 +57,18 @@ func NewTSNetServer(cfg *config.TailscaleConfig, appLogger *logger.Logger) (*TSN
 	// Configure state storage based on configuration
 	stateStore, err := setupStateStore(cfg, appLogger)
 	if err != nil && err != ErrStateStoreSkipped {
-		appLogger.Warn("State store setup warning", "error", err)
 		// Continue with default filesystem storage
 	} else if stateStore != nil {
-		if store, ok := stateStore.(ipn.StateStore); ok {
-			server.Store = store
-			appLogger.Info("Custom state storage configured successfully", "type", "kubernetes")
-		} else {
-			appLogger.Error("State store does not implement ipn.StateStore interface")
-		}
+		server.Store = stateStore
+		appLogger.Debug("using kubestore")
 	} else {
-		appLogger.Info("Using filesystem state storage", "dir", cfg.StateDir)
+		appLogger.Debug("using filesystem", "dir", cfg.StateDir)
 	}
 
 	return ts, nil
 }
 
 func (ts *TSNetServer) Start(ctx context.Context) error {
-	ts.logger.Info("Starting TSNet server", "hostname", ts.config.Hostname)
 	return ts.server.Start()
 }
 
@@ -117,10 +111,10 @@ func (ts *TSNetServer) Dial(ctx context.Context, network, address string) (net.C
 }
 
 // setupStateStore configures the appropriate state store based on configuration
-func setupStateStore(cfg *config.TailscaleConfig, appLogger *logger.Logger) (interface{}, error) {
+func setupStateStore(cfg *config.TailscaleConfig, appLogger *logger.Logger) (ipn.StateStore, error) {
 	// Check environment variable first (highest priority)
 	if stateVar := os.Getenv("TS_STATE"); stateVar != "" {
-		appLogger.Info("Using state storage from environment", "tsState", stateVar)
+		appLogger.Debug("state from env", "tsState", stateVar)
 		if strings.HasPrefix(stateVar, "kube:") {
 			return kubestore.NewFromConfig(func(format string, args ...interface{}) {
 				appLogger.Debug(fmt.Sprintf(format, args...))
@@ -132,7 +126,7 @@ func setupStateStore(cfg *config.TailscaleConfig, appLogger *logger.Logger) (int
 
 	// Use configuration stateSecret if specified
 	if stateVar := strings.TrimSpace(cfg.StateSecret); stateVar != "" {
-		appLogger.Info("Using state storage from configuration", "stateSecret", stateVar)
+		appLogger.Debug("state from config", "stateSecret", stateVar)
 		if strings.HasPrefix(stateVar, "kube:") {
 			return kubestore.NewFromConfig(func(format string, args ...interface{}) {
 				appLogger.Debug(fmt.Sprintf(format, args...))
@@ -143,7 +137,7 @@ func setupStateStore(cfg *config.TailscaleConfig, appLogger *logger.Logger) (int
 	}
 
 	// Use filesystem storage (default)
-	appLogger.Debug("Using default filesystem state storage")
+	// default filesystem storage
 	return nil, ErrStateStoreSkipped
 }
 
@@ -165,8 +159,7 @@ func (ts *TSNetServer) readCredential(direct, file, envVar string) (string, erro
 
 	// Environment variable
 	if envVar != "" {
-		value := os.Getenv(envVar)
-		if value != "" {
+		if value := os.Getenv(envVar); value != "" {
 			return value, nil
 		}
 	}

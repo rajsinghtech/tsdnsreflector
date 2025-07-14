@@ -9,15 +9,15 @@ import (
 	"github.com/rajsingh/tsdnsreflector/internal/metrics"
 )
 
-type ZoneMemoryMonitor struct {
-	zones        map[string]*ZoneMemoryUsage
+type Monitor struct {
+	zones        map[string]*Usage
 	mutex        sync.RWMutex
 	logger       *logger.Logger
-	globalLimits GlobalMemoryLimits
+	globalLimits Limits
 	enabled      bool
 }
 
-type ZoneMemoryUsage struct {
+type Usage struct {
 	CacheSize      int64  // Current cache memory usage in bytes
 	QueryHistory   int64  // Query history buffer memory
 	LastUpdated    time.Time
@@ -25,57 +25,57 @@ type ZoneMemoryUsage struct {
 	MaxQueryBuffer int64  // Per-zone query buffer limit
 }
 
-type GlobalMemoryLimits struct {
+type Limits struct {
 	MaxZoneCount      int   // Maximum number of zones
 	MaxTotalMemory    int64 // Total memory limit for all zones
 	MaxCachePerZone   int64 // Default cache memory limit per zone
 	MaxBufferPerZone  int64 // Default query buffer limit per zone
 }
 
-func NewZoneMemoryMonitor(log *logger.Logger, limits GlobalMemoryLimits) *ZoneMemoryMonitor {
-	return &ZoneMemoryMonitor{
-		zones:        make(map[string]*ZoneMemoryUsage),
+func NewMonitor(log *logger.Logger, limits Limits) *Monitor {
+	return &Monitor{
+		zones:        make(map[string]*Usage),
 		logger:       log,
 		globalLimits: limits,
 		enabled:      true,
 	}
 }
 
-func (zmm *ZoneMemoryMonitor) RegisterZone(zoneName string) error {
-	zmm.mutex.Lock()
-	defer zmm.mutex.Unlock()
+func (m *Monitor) RegisterZone(zoneName string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 
-	if len(zmm.zones) >= zmm.globalLimits.MaxZoneCount {
+	if len(m.zones) >= m.globalLimits.MaxZoneCount {
 		return &MemoryLimitError{
 			Type:    "zone_count",
 			Message: "maximum zone count exceeded",
-			Limit:   int64(zmm.globalLimits.MaxZoneCount),
-			Current: int64(len(zmm.zones)),
+			Limit:   int64(m.globalLimits.MaxZoneCount),
+			Current: int64(len(m.zones)),
 		}
 	}
 
-	zmm.zones[zoneName] = &ZoneMemoryUsage{
-		MaxCacheSize:   zmm.globalLimits.MaxCachePerZone,
-		MaxQueryBuffer: zmm.globalLimits.MaxBufferPerZone,
+	m.zones[zoneName] = &Usage{
+		MaxCacheSize:   m.globalLimits.MaxCachePerZone,
+		MaxQueryBuffer: m.globalLimits.MaxBufferPerZone,
 		LastUpdated:    time.Now(),
 	}
 
-	zmm.logger.ZoneInfo(zoneName, "Zone memory monitoring registered", 
-		"maxCache", zmm.globalLimits.MaxCachePerZone, 
-		"maxBuffer", zmm.globalLimits.MaxBufferPerZone)
+	m.logger.ZoneInfo(zoneName, "Zone memory monitoring registered", 
+		"maxCache", m.globalLimits.MaxCachePerZone, 
+		"maxBuffer", m.globalLimits.MaxBufferPerZone)
 
 	return nil
 }
 
-func (zmm *ZoneMemoryMonitor) UpdateCacheUsage(zoneName string, cacheSize int64) error {
-	if !zmm.enabled {
+func (m *Monitor) UpdateCacheUsage(zoneName string, cacheSize int64) error {
+	if !m.enabled {
 		return nil
 	}
 
-	zmm.mutex.Lock()
-	defer zmm.mutex.Unlock()
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 
-	usage, exists := zmm.zones[zoneName]
+	usage, exists := m.zones[zoneName]
 	if !exists {
 		return &MemoryLimitError{
 			Type:    "zone_not_registered",
@@ -84,7 +84,7 @@ func (zmm *ZoneMemoryMonitor) UpdateCacheUsage(zoneName string, cacheSize int64)
 	}
 
 	if cacheSize > usage.MaxCacheSize {
-		zmm.logger.ZoneWarn(zoneName, "Cache memory limit exceeded",
+		m.logger.ZoneWarn(zoneName, "Cache memory limit exceeded",
 			"current", cacheSize,
 			"limit", usage.MaxCacheSize)
 		
@@ -105,21 +105,21 @@ func (zmm *ZoneMemoryMonitor) UpdateCacheUsage(zoneName string, cacheSize int64)
 	return nil
 }
 
-func (zmm *ZoneMemoryMonitor) UpdateQueryBufferUsage(zoneName string, bufferSize int64) error {
-	if !zmm.enabled {
+func (m *Monitor) UpdateQueryBufferUsage(zoneName string, bufferSize int64) error {
+	if !m.enabled {
 		return nil
 	}
 
-	zmm.mutex.Lock()
-	defer zmm.mutex.Unlock()
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 
-	usage, exists := zmm.zones[zoneName]
+	usage, exists := m.zones[zoneName]
 	if !exists {
 		return nil
 	}
 
 	if bufferSize > usage.MaxQueryBuffer {
-		zmm.logger.ZoneWarn(zoneName, "Query buffer memory limit exceeded",
+		m.logger.ZoneWarn(zoneName, "Query buffer memory limit exceeded",
 			"current", bufferSize,
 			"limit", usage.MaxQueryBuffer)
 		
@@ -140,34 +140,34 @@ func (zmm *ZoneMemoryMonitor) UpdateQueryBufferUsage(zoneName string, bufferSize
 	return nil
 }
 
-func (zmm *ZoneMemoryMonitor) GetTotalMemoryUsage() int64 {
-	zmm.mutex.RLock()
-	defer zmm.mutex.RUnlock()
+func (m *Monitor) GetTotalMemoryUsage() int64 {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 
 	var total int64
-	for _, usage := range zmm.zones {
+	for _, usage := range m.zones {
 		total += usage.CacheSize + usage.QueryHistory
 	}
 	return total
 }
 
-func (zmm *ZoneMemoryMonitor) CheckGlobalLimits() error {
-	if !zmm.enabled {
+func (m *Monitor) CheckGlobalLimits() error {
+	if !m.enabled {
 		return nil
 	}
 
-	totalUsage := zmm.GetTotalMemoryUsage()
-	if totalUsage > zmm.globalLimits.MaxTotalMemory {
-		zmm.logger.Error("Global memory limit exceeded",
+	totalUsage := m.GetTotalMemoryUsage()
+	if totalUsage > m.globalLimits.MaxTotalMemory {
+		m.logger.Error("Global memory limit exceeded",
 			"current", totalUsage,
-			"limit", zmm.globalLimits.MaxTotalMemory)
+			"limit", m.globalLimits.MaxTotalMemory)
 		
 		metrics.RecordMemoryViolation("global", "total_memory")
 		
 		return &MemoryLimitError{
 			Type:    "global_memory",
 			Message: "global memory limit exceeded",
-			Limit:   zmm.globalLimits.MaxTotalMemory,
+			Limit:   m.globalLimits.MaxTotalMemory,
 			Current: totalUsage,
 		}
 	}
@@ -175,16 +175,16 @@ func (zmm *ZoneMemoryMonitor) CheckGlobalLimits() error {
 	return nil
 }
 
-func (zmm *ZoneMemoryMonitor) GetZoneUsage(zoneName string) (*ZoneMemoryUsage, bool) {
-	zmm.mutex.RLock()
-	defer zmm.mutex.RUnlock()
+func (m *Monitor) GetZoneUsage(zoneName string) (*Usage, bool) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 
-	usage, exists := zmm.zones[zoneName]
+	usage, exists := m.zones[zoneName]
 	if !exists {
 		return nil, false
 	}
 
-	return &ZoneMemoryUsage{
+	return &Usage{
 		CacheSize:      usage.CacheSize,
 		QueryHistory:   usage.QueryHistory,
 		LastUpdated:    usage.LastUpdated,
@@ -193,8 +193,8 @@ func (zmm *ZoneMemoryMonitor) GetZoneUsage(zoneName string) (*ZoneMemoryUsage, b
 	}, true
 }
 
-func (zmm *ZoneMemoryMonitor) StartPeriodicCheck(interval time.Duration) {
-	if !zmm.enabled {
+func (m *Monitor) StartPeriodicCheck(interval time.Duration) {
+	if !m.enabled {
 		return
 	}
 
@@ -202,8 +202,8 @@ func (zmm *ZoneMemoryMonitor) StartPeriodicCheck(interval time.Duration) {
 	go func() {
 		defer ticker.Stop()
 		for range ticker.C {
-			if err := zmm.CheckGlobalLimits(); err != nil {
-				zmm.logger.Error("Global memory check failed", "error", err)
+			if err := m.CheckGlobalLimits(); err != nil {
+				m.logger.Error("Global memory check failed", "error", err)
 			}
 			
 			// Update system memory metrics
@@ -214,18 +214,18 @@ func (zmm *ZoneMemoryMonitor) StartPeriodicCheck(interval time.Duration) {
 	}()
 }
 
-func (zmm *ZoneMemoryMonitor) Disable() {
-	zmm.mutex.Lock()
-	defer zmm.mutex.Unlock()
-	zmm.enabled = false
-	zmm.logger.Info("Zone memory monitoring disabled")
+func (m *Monitor) Disable() {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.enabled = false
+	m.logger.Info("Zone memory monitoring disabled")
 }
 
-func (zmm *ZoneMemoryMonitor) Enable() {
-	zmm.mutex.Lock()
-	defer zmm.mutex.Unlock()
-	zmm.enabled = true
-	zmm.logger.Info("Zone memory monitoring enabled")
+func (m *Monitor) Enable() {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.enabled = true
+	m.logger.Info("Zone memory monitoring enabled")
 }
 
 type MemoryLimitError struct {

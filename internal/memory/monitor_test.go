@@ -16,14 +16,14 @@ func TestMemoryLimitEnforcement(t *testing.T) {
 	}
 	log := logger.New(logConfig)
 	
-	limits := GlobalMemoryLimits{
+	limits := Limits{
 		MaxZoneCount:     10,
 		MaxTotalMemory:   1024 * 1024, // 1MB
 		MaxCachePerZone:  512 * 1024,  // 512KB per zone
 		MaxBufferPerZone: 256 * 1024,  // 256KB per zone
 	}
 	
-	monitor := NewZoneMemoryMonitor(log, limits)
+	monitor := NewMonitor(log, limits)
 	
 	t.Run("zone_registration", func(t *testing.T) {
 		err := monitor.RegisterZone("test-zone")
@@ -162,14 +162,14 @@ func TestMemoryMonitoringAccuracy(t *testing.T) {
 	}
 	log := logger.New(logConfig)
 	
-	limits := GlobalMemoryLimits{
+	limits := Limits{
 		MaxZoneCount:     5,
 		MaxTotalMemory:   2 * 1024 * 1024, // 2MB
 		MaxCachePerZone:  1024 * 1024,     // 1MB per zone
 		MaxBufferPerZone: 512 * 1024,      // 512KB per zone
 	}
 	
-	monitor := NewZoneMemoryMonitor(log, limits)
+	monitor := NewMonitor(log, limits)
 	
 	t.Run("accurate_memory_tracking", func(t *testing.T) {
 		zoneName := "accuracy-test"
@@ -249,14 +249,14 @@ func TestMemoryMonitoringDisabledState(t *testing.T) {
 	}
 	log := logger.New(logConfig)
 	
-	limits := GlobalMemoryLimits{
+	limits := Limits{
 		MaxZoneCount:     10,
 		MaxTotalMemory:   1024 * 1024,
 		MaxCachePerZone:  512 * 1024,
 		MaxBufferPerZone: 256 * 1024,
 	}
 	
-	monitor := NewZoneMemoryMonitor(log, limits)
+	monitor := NewMonitor(log, limits)
 	
 	t.Run("disabled_monitoring", func(t *testing.T) {
 		zoneName := "disabled-test"

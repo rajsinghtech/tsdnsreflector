@@ -473,7 +473,7 @@ func TestDuplicateTranslateID(t *testing.T) {
 		t.Fatal("Expected error for duplicate TranslateID but got none")
 	}
 
-	expectedError := "duplicate translateID 1"
+	expectedError := "translateID 1 used by"
 	if !strings.Contains(err.Error(), expectedError) {
 		t.Errorf("Expected error to contain %q, got: %v", expectedError, err)
 	}
