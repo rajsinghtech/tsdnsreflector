@@ -27,7 +27,12 @@ This enables Tailscale clients to resolve `api.default.svc.prod.local` and `api.
 
 ## Configuration Structure
 
-### Global Settings
+tsdnsreflector uses a dual configuration system:
+- **Runtime settings**: Environment variables and command-line flags
+- **Business logic**: Zone configuration in `config.hujson`
+
+### Zone Configuration (config.hujson)
+
 ```json
 {
   "global": {
@@ -40,13 +45,7 @@ This enables Tailscale clients to resolve `api.default.svc.prod.local` and `api.
       "maxSize": 10000,
       "ttl": "300s"
     }
-  }
-}
-```
-
-### Zone Configuration
-```json
-{
+  },
   "zones": {
     "zone-name": {
       "domains": ["*.example.local"],
@@ -54,28 +53,28 @@ This enables Tailscale clients to resolve `api.default.svc.prod.local` and `api.
         "dnsServers": ["10.1.0.53:53"],
         "timeout": "3s"
       },
-      "4via6": {
-        "reflectedDomain": "example.local",
-        "translateid": 1
-      },
-      "allowExternalClients": false
+      "reflectedDomain": "example.local",
+      "translateid": 1,
+      "prefixSubnet": "fd7a:115c:a1e0:b1a:0:1::/96",
+      "allowExternalClients": false,
+      "cache": {
+        "maxSize": 5000,
+        "ttl": "600s"
+      }
     }
   }
 }
 ```
 
-### 4via6 Translation
+### Zone Fields
 
-Configure IPv4-to-IPv6 translation for subnet routing:
-
-```json
-{
-  "4via6": {
-    "reflectedDomain": "cluster.local",  // Actual domain to resolve
-    "translateid": 1                     // Site ID (matches subnet router)
-  }
-}
-```
+- **domains**: List of domain patterns this zone handles (supports wildcards)
+- **backend**: DNS servers and connection settings for this zone
+- **reflectedDomain**: Domain suffix to replace when forwarding queries (for 4via6)
+- **translateid**: Site ID for 4via6 translation (enables IPv4→IPv6 conversion)
+- **prefixSubnet**: IPv6 prefix for 4via6 translation (optional, auto-generated if not specified)
+- **allowExternalClients**: Allow non-Tailscale clients to query this zone
+- **cache**: Zone-specific cache configuration (overrides global)
 
 ## Environment Variables
 
@@ -83,32 +82,46 @@ Configure runtime settings via environment variables:
 
 ### Server Settings
 ```bash
-TSDNS_HOSTNAME=tsdnsreflector
-TSDNS_DNS_PORT=53
-TSDNS_HTTP_PORT=8080
-TSDNS_BIND_ADDRESS=0.0.0.0
-TSDNS_DEFAULT_TTL=300
+TSDNS_HOSTNAME=tsdnsreflector        # Hostname for the service
+TSDNS_DNS_PORT=53                    # DNS server port
+TSDNS_HTTP_PORT=8080                 # HTTP server port (metrics/health)
+TSDNS_BIND_ADDRESS=0.0.0.0           # Bind address for all services
+TSDNS_DEFAULT_TTL=300                # Default DNS TTL in seconds
+TSDNS_HEALTH_ENABLED=true            # Enable health endpoint
+TSDNS_HEALTH_PATH=/health            # Health check path
+TSDNS_METRICS_ENABLED=true           # Enable Prometheus metrics
+TSDNS_METRICS_PATH=/metrics          # Metrics endpoint path
 ```
 
-### Tailscale Authentication
+### Tailscale Settings
 ```bash
-# Traditional auth key
-TS_AUTHKEY=tskey-auth-your-key-here
+# Basic configuration
+TS_AUTHKEY=tskey-auth-xxx            # Traditional auth key
+TS_STATE=kube:$(POD_NAME)            # State storage (Kubernetes)
+TSDNS_TS_HOSTNAME=                   # Override TSNet hostname (defaults to TSDNS_HOSTNAME)
+TSDNS_TS_STATE_DIR=/tmp/tailscale    # State directory
+TSDNS_TS_EXIT_NODE=false             # Act as exit node
+TSDNS_TS_AUTO_SPLIT_DNS=false        # Auto-configure split DNS
 
-# OAuth client credentials
-TS_API_CLIENT_ID=tskey-client-your-id
-TS_API_CLIENT_SECRET=your-secret
+# OAuth authentication (preferred)
+CLIENT_ID_FILE=/etc/tailscale/oauth/client_id       # OAuth client ID file
+CLIENT_SECRET_FILE=/etc/tailscale/oauth/client_secret # OAuth secret file
+TS_API_CLIENT_ID=tskey-client-xxx    # OAuth client ID (fallback)
+TS_API_CLIENT_SECRET=xxx             # OAuth secret (fallback)
 
-# OAuth with files (Kubernetes)
-CLIENT_ID_FILE=/etc/tailscale/oauth/client_id
-CLIENT_SECRET_FILE=/etc/tailscale/oauth/client_secret
+# OAuth advanced settings
+TSDNS_TS_OAUTH_URL=https://login.tailscale.com  # OAuth endpoint
+TSDNS_TS_OAUTH_TAGS=tag:dns                     # Device tags
+TSDNS_TS_OAUTH_EPHEMERAL=true                   # Ephemeral device
+TSDNS_TS_OAUTH_PREAUTHORIZED=true               # Pre-authorized device
 ```
 
 ### Logging
 ```bash
 TSDNS_LOG_LEVEL=info          # debug, info, warn, error
 TSDNS_LOG_FORMAT=json         # json, text
-TSDNS_LOG_QUERIES=false       # Enable query logging
+TSDNS_LOG_QUERIES=false       # Enable DNS query logging
+TSDNS_LOG_FILE=               # Log file path (empty = stdout)
 ```
 
 ## Hot Reload
@@ -175,3 +188,6 @@ This routes all queries for `*.cluster1.local` to tsdnsreflector while other dom
 - Monitor external access via Prometheus metrics
 - Enable query logging for external-facing zones
 - Implement rate limiting at the network level
+- Use OAuth authentication instead of auth keys for production
+- Configure zone-specific cache settings for frequently accessed domains
+- Set `allowExternalClients: false` for sensitive internal zones

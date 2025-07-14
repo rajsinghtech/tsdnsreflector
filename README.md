@@ -104,9 +104,9 @@ This allows multiple Kubernetes clusters with overlapping IPs to be uniquely add
 
 ## Documentation
 
-- 📋 **[Configuration Guide](docs/CONFIGURATION.md)** - All config options and examples
-- 🚀 **[Deployment Guide](docs/DEPLOYMENT.md)** - Docker, Kubernetes, systemd setups  
-- 🔗 **[Tailscale Integration](docs/TAILSCALE.md)** - Authentication, networking, troubleshooting
+- **[Configuration Guide](docs/CONFIGURATION.md)** - All config options and examples
+- **[Deployment Guide](docs/DEPLOYMENT.md)** - Docker, Kubernetes, systemd setups  
+- **[Tailscale Integration](docs/TAILSCALE.md)** - Authentication, networking, troubleshooting
 
 ## Features
 
