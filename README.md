@@ -25,22 +25,57 @@ tsdnsreflector solves this by mapping cluster-specific domains to 4via6 IPv6 add
 - `api.default.svc.cluster1.local` → `fd7a:115c:a1e0:b1a:0:1:a00:1` (Cluster A)
 - `api.default.svc.cluster2.local` → `fd7a:115c:a1e0:b1a:0:2:a00:1` (Cluster B)
 
-### External Tailscale Access
-External systems cannot resolve `.ts.net` domains because they're not part of the Tailscale network.
+### DNS Proxy for External Clients
+External clients need access to DNS servers or MagicDNS within your Tailscale network but cannot reach them directly.
 
-tsdnsreflector acts as a proxy, resolving Tailscale domains and serving them to external clients.
+**Example scenario**:
+- Internal DNS server at `100.64.1.10:53` (Tailscale IP or Subnet Router Advertised IP)
+- External monitoring system needs to resolve internal domains
+- Direct access blocked by network boundaries
+
+tsdnsreflector bridges this gap by:
+- Connecting to internal DNS servers via Tailscale
+- Serving external clients from a public IP
+- Enabling secure DNS resolution without VPN access
+
+**Use cases**:
+- CI/CD systems resolving internal service names
+- External monitoring accessing private DNS records  
+- Third-party integrations needing internal domain resolution
 
 ## Quick Start
 
+### 1. Create Configuration
+Create `config.hujson` with your DNS zones:
+
+```json
+{
+  "zones": {
+    "internal": {
+      "domains": ["*.internal.local"],
+      "backend": {"dnsServers": ["100.64.1.10:53"]}, // Tailscale DNS server
+      "allowExternalClients": true
+    },
+    "cluster": {
+      "domains": ["*.cluster.local"],
+      "backend": {"dnsServers": ["10.1.0.10:53"]}, // Subnet-routed DNS
+      "4via6": {"reflectedDomain": "cluster.local", "translateid": 1}
+    }
+  }
+}
+```
+
+### 2. Run with Docker
 ```bash
-# Run with Docker
+# Run with config file
 docker run -d --name tsdnsreflector \
   -p 53:53/udp \
+  -v ./config.hujson:/config.hujson \
   -e TS_AUTHKEY=tskey-auth-your-key \
-  ghcr.io/rajsinghtech/tsdnsreflector:latest
+  ghcr.io/rajsinghtech/tsdnsreflector:latest -config /config.hujson
 
-# Test IPv6 translation
-nslookup -type=AAAA kubernetes.default.svc.cluster1.local localhost
+# Test IPv6 translation  
+nslookup -type=AAAA service.internal.local 100.x.x.x
 ```
 
 ## How it works
@@ -76,10 +111,11 @@ This allows multiple Kubernetes clusters with overlapping IPs to be uniquely add
 ## Features
 
 - **Multi-Cluster DNS** - Resolve Kubernetes services across clusters with overlapping IPs
+- **DNS Proxy Bridge** - External clients access internal DNS servers via Tailscale
 - **4via6 Translation** - Automatic IPv4→IPv6 conversion for unique addressing
-- **CoreDNS Integration** - Connects to cluster CoreDNS servers via Tailscale subnet routes
+- **TSNet Integration** - Connects to DNS servers on Tailscale IPs and subnet routes
 - **MagicDNS Proxy** - External clients can resolve `.ts.net` domains  
-- **Zone-Based Routing** - Map different domains to different clusters
+- **Zone-Based Routing** - Map different domains to different DNS servers
 - **Hot Reload** - Update config without restarting (SIGHUP)
 - **Production Ready** - Health checks, metrics, security hardening
 - **Kubernetes Native** - StatefulSet, RBAC, OAuth support
@@ -110,12 +146,12 @@ spec:
   "zones": {
     "cluster1": {
       "domains": ["*.cluster1.local"], 
-      "backend": {"dnsServers": ["10.0.0.10:53"]}, # CoreDNS IP
+      "backend": {"dnsServers": ["10.1.0.10:53"]}, # CoreDNS IP
       "4via6": {"reflectedDomain": "cluster.local", "translateid": 1}
     },
     "cluster2": {
       "domains": ["*.cluster2.local"], 
-      "backend": {"dnsServers": ["10.0.0.10:53"]}, # Same CoreDNS IP, different cluster
+      "backend": {"dnsServers": ["10.2.0.10:53"]}, # Same CoreDNS IP, different cluster
       "4via6": {"reflectedDomain": "cluster.local", "translateid": 2}
     }
   }
@@ -138,55 +174,6 @@ curl api.default.svc.cluster1.local  # Cluster A
 curl api.default.svc.cluster2.local  # Cluster B
 
 # Both work despite overlapping IPs via 4via6 translation
-```
-
-## Installation
-
-### Docker (Easiest)
-```bash
-docker run -d \
-  --name tsdnsreflector \
-  -p 53:53/udp \
-  -e TS_AUTHKEY=tskey-auth-your-key \
-  ghcr.io/rajsinghtech/tsdnsreflector:latest
-```
-
-### Kubernetes (Production)
-```bash
-kubectl apply -k deploy/k8s/base/
-kubectl create secret generic tailscale-auth \
-  --from-literal=authkey=tskey-auth-your-key \
-  -n tsdnsreflector
-```
-
-### Pre-built Binaries
-Download from [releases](https://github.com/rajsinghtech/tsdnsreflector/releases):
-```bash
-wget https://github.com/rajsinghtech/tsdnsreflector/releases/latest/download/tsdnsreflector-linux-amd64
-chmod +x tsdnsreflector-linux-amd64
-./tsdnsreflector-linux-amd64 -config config.hujson
-```
-
-## Security
-
-By default, tsdnsreflector only serves Tailscale clients (detected by IP range 100.64.0.0/10). External clients can only resolve `.ts.net` domains unless explicitly allowed per zone.
-
-See [Configuration Guide](docs/CONFIGURATION.md#security-considerations) for external access controls.
-
-## Monitoring
-
-Built-in health and metrics endpoints:
-
-```bash
-# Health check
-curl http://tsdnsreflector:8080/health
-
-# Prometheus metrics  
-curl http://tsdnsreflector:9090/metrics
-```
-git clone https://github.com/rajsinghtech/tsdnsreflector.git
-cd tsdnsreflector
-make dev  # clean, lint, test, build
 ```
 
 ## License
