@@ -7,7 +7,7 @@ toolchain go1.24.4
 require (
 	github.com/miekg/dns v1.1.58
 	github.com/prometheus/client_golang v1.22.0
-	github.com/tailscale/hujson v0.0.0-20221223112325-20486734a56a
+	github.com/tailscale/hujson v0.0.0-20250605163823-992244df8c5a
 	k8s.io/api v0.33.2
 	k8s.io/apimachinery v0.33.2
 	k8s.io/client-go v0.33.2
