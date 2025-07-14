@@ -17,4 +17,4 @@ commonLabels:
 images:
 - name: tsdnsreflector
   newName: ghcr.io/rajsinghtech/tsdnsreflector
-  newTag: v1.1.0
+  newTag: v1.2.1
