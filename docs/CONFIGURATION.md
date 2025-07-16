@@ -12,12 +12,14 @@ Create a `config.hujson` file to map Kubernetes cluster DNS records for Tailscal
     "production": {
       "domains": ["*.prod.local"],
       "backend": {"dnsServers": ["10.0.0.10:53"]},  // CoreDNS IP
-      "4via6": {"reflectedDomain": "cluster.local", "translateid": 1}
+      "reflectedDomain": "cluster.local",
+      "translateid": 1
     },
     "staging": {
       "domains": ["*.staging.local"],
       "backend": {"dnsServers": ["10.0.0.10:53"]},  // Same CoreDNS IP, different cluster
-      "4via6": {"reflectedDomain": "cluster.local", "translateid": 2}
+      "reflectedDomain": "cluster.local",
+      "translateid": 2
     }
   }
 }

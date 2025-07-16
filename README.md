@@ -59,7 +59,8 @@ Create `config.hujson` with your DNS zones:
     "cluster": {
       "domains": ["*.cluster.local"],
       "backend": {"dnsServers": ["10.1.0.10:53"]}, // Subnet-routed DNS
-      "4via6": {"reflectedDomain": "cluster.local", "translateid": 1}
+      "reflectedDomain": "cluster.local",
+      "translateid": 1
     }
   }
 }
@@ -147,12 +148,14 @@ spec:
     "cluster1": {
       "domains": ["*.cluster1.local"], 
       "backend": {"dnsServers": ["10.1.0.10:53"]}, # CoreDNS IP
-      "4via6": {"reflectedDomain": "cluster.local", "translateid": 1}
+      "reflectedDomain": "cluster.local",
+      "translateid": 1
     },
     "cluster2": {
       "domains": ["*.cluster2.local"], 
       "backend": {"dnsServers": ["10.2.0.10:53"]}, # Same CoreDNS IP, different cluster
-      "4via6": {"reflectedDomain": "cluster.local", "translateid": 2}
+      "reflectedDomain": "cluster.local",
+      "translateid": 2
     }
   }
 }
