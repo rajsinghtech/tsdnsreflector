@@ -11,7 +11,7 @@ require (
 	k8s.io/api v0.33.2
 	k8s.io/apimachinery v0.33.2
 	k8s.io/client-go v0.33.2
-	tailscale.com v1.84.3
+	tailscale.com v1.88.3
 )
 
 require (
